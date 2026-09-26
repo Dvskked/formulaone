@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>APEX GP 2026 — Browser Formula 1 Racing &amp; Team Management Sim</title>
+<meta name="description" content="APEX GP 2026 is a free browser-based Formula 1 racing and career management game. Race the full 11-team 2026 grid from the paddock, manage tyre strategy, pit stops, R&amp;D and contracts in a slick top-down 60 FPS canvas racer." />
+<meta name="keywords" content="formula 1 game, f1 browser game, racing manager, f1 career mode, top down racing game, 2026 f1 grid, f1 simulation game, html5 racing game" />
+<meta name="theme-color" content="#08090d" />
+<meta name="author" content="APEX GP Studio" />
+<link rel="canonical" href="https://apexgp.example/index.html" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="APEX GP 2026" />
+<meta property="og:title" content="APEX GP 2026 — Browser Formula 1 Racing &amp; Team Management Sim" />
+<meta property="og:description" content="Take the wheel or run the team. Qualifying, tyres, pit windows, podiums and a multi-season career across the official 11-team 2026 grid." />
+<meta property="og:locale" content="en_US" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="APEX GP 2026 — Formula 1 Browser Sim" />
+<meta name="twitter:description" content="Top-down 60 FPS canvas racer + full F1 team management career mode. Plays instantly in your browser." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Oxanium:wght@500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e10600'/%3E%3Cpath d='M7 24 L13 8 h3 l3 8 3-8 h3 l-6 16h-3l-3-8-3 8z' fill='%23fff'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/styles.css" />
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  "name": "APEX GP 2026",
+  "description": "Browser-based Formula 1 racing and team management simulation featuring the official 11-team 2026 grid.",
+  "genre": ["Racing", "Simulation", "Management"],
+  "gamePlatform": "Web Browser",
+  "operatingSystem": "Any",
+  "applicationCategory": "Game",
+  "inLanguage": "en",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "featureList": [
+    "Top-down 60 FPS canvas racing",
+    "2026 Formula 1 grid with 11 teams and 22 drivers",
+    "Qualifying (Q1/Q2/Q3) and Grand Prix sessions",
+    "Tyre degradation, fuel strategy and mandatory pit stops",
+    "Multi-season career mode with contracts and team offers",
+    "R&D upgrade tree and custom driver/team creation"
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip-link" href="#app">Skip to game</a>
+
+<!-- ============================== LANDING ============================== -->
+<div id="landing">
+  <header class="topbar" role="banner">
+    <a class="brand" href="#landing-top" aria-label="APEX GP 2026 home">
+      <span class="brand-mark" aria-hidden="true">A</span>
+      <span class="brand-text">APEX<span>GP</span></span>
+    </a>
+    <nav class="topnav" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#modes">Game&nbsp;Modes</a>
+      <a href="#grid">2026&nbsp;Grid</a>
+      <a href="#controls">Controls</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="landing-sound-toggle" type="button" aria-pressed="false" title="Toggle sound">Sound&nbsp;Off</button>
+      <button class="btn btn-primary" data-action="launch" type="button">Launch Garage</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="landing-top">
+      <div class="hero-bg" aria-hidden="true"><canvas id="hero-canvas"></canvas></div>
+      <div class="hero-inner">
+        <p class="eyebrow">2026 Season · 11 Teams · 22 Drivers</p>
+        <h1>Run the team.<br /><em>Drive the lap.</em></h1>
+        <p class="lede">
+          APEX GP 2026 is a complete Formula 1 experience that runs straight in your browser. Attack a qualifying lap,
+          manage tyres, fuel and pit windows in a full Grand Prix, then build a championship career across
+          multiple seasons — all rendered at a locked 60 FPS on pure HTML5 Canvas.
+        </p>
+        <div class="cta-row">
+          <button class="btn btn-primary btn-lg" data-action="launch" type="button">Start Your Career</button>
+          <button class="btn btn-outline btn-lg" data-action="launch" data-mode="quick" type="button">Quick Race</button>
+        </div>
+        <ul class="hero-stats" aria-label="Game highlights">
+          <li><strong>60</strong><span>FPS Canvas</span></li>
+          <li><strong>11</strong><span>Teams</span></li>
+          <li><strong>12</strong><span>Round Calendar</span></li>
+          <li><strong>0</strong><span>Installs</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <header class="section-head">
+        <p class="eyebrow">Features</p>
+        <h2>Everything a modern sim needs — nothing it doesn't</h2>
+      </header>
+      <div class="card-grid" id="features-grid"></div>
+    </section>
+
+    <section class="section section-alt" id="modes">
+      <header class="section-head">
+        <p class="eyebrow">Game Modes</p>
+        <h2>Choose your seat in the paddock</h2>
+      </header>
+      <div class="card-grid">
+        <article class="card mode-card">
+          <span class="card-badge">Career</span>
+          <h3>Team Principal / Driver Career</h3>
+          <p>Multi-season management sim: sign contracts, spend race winnings on R&amp;D, chase team offers based on your
+             reputation, and fight for both championships across a 12-round condensed calendar.</p>
+          <ul class="tick-list">
+            <li>Reputation-driven contract offers</li>
+            <li>Drivers' &amp; Constructors' standings</li>
+            <li>Off-season R&amp;D tree (power, aero, reliability, pit crew)</li>
+          </ul>
+        </article>
+        <article class="card mode-card">
+          <span class="card-badge">Weekend</span>
+          <h3>Qualifying → Grand Prix</h3>
+          <p>A full race weekend. Q1 and Q2 are simulated, then you go out for the Q3 pole attack lap. Grid locked,
+           lights out, mandatory pit stops, fastest lap point, podium ceremony.</p>
+          <ul class="tick-list">
+            <li>Real 25/18/15/12/10/8/6/4/2/1 points</li>
+            <li>Soft / Medium / Hard strategy matrix</li>
+            <li>Mandatory two-stop / one-stop decisions</li>
+          </ul>
+        </article>
+        <article class="card mode-card">
+          <span class="card-badge">Garage</span>
+          <h3>Custom Driver &amp; Constructor</h3>
+          <p>Build your own driver — name, nation, number, stats — and choose which seat on the 2026 grid to take.
+             Or replace a whole constructor with a custom team on the 11-team entry list.</p>
+          <ul class="tick-list">
+            <li>Full 2026 grid of official teams</li>
+            <li>Custom livery colours &amp; car number</li>
+            <li>Replaces any driver or any team slot</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="grid">
+      <header class="section-head">
+        <p class="eyebrow">The 2026 Grid</p>
+        <h2>All eleven official constructors, twenty-two seats</h2>
+        <p class="section-sub">McLaren, Red Bull, Mercedes, Ferrari, Racing Bulls, Alpine, Haas, Audi, Williams,
+           Aston Martin and the all-new Cadillac entry.</p>
+      </header>
+      <div class="grid-teams" id="teams-grid"></div>
+    </section>
+
+    <section class="section section-alt" id="controls">
+      <header class="section-head">
+        <p class="eyebrow">Controls</p>
+        <h2>Keyboard, gamepad or touch</h2>
+      </header>
+      <div class="controls-wrap">
+        <table class="keytable">
+          <caption class="sr-only">Keyboard controls</caption>
+          <tbody>
+            <tr><th><kbd>W</kbd> / <kbd>↑</kbd></th><td>Throttle</td></tr>
+            <tr><th><kbd>S</kbd> / <kbd>↓</kbd></th><td>Brake / reverse</td></tr>
+            <tr><th><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd></th><td>Steer</td></tr>
+            <tr><th><kbd>Space</kbd></th><td>Handbrake (rotate the car)</td></tr>
+            <tr><th><kbd>P</kbd></th><td>Request pit stop / pit menu</td></tr>
+            <tr><th><kbd>R</kbd></th><td>Recover car to track</td></tr>
+            <tr><th><kbd>C</kbd></th><td>Cycle camera zoom</td></tr>
+            <tr><th><kbd>Esc</kbd> / <kbd>Tab</kbd></th><td>Pause &amp; session menu</td></tr>
+            <tr><th><kbd>1</kbd>–<kbd>4</kbd></th><td>Simulation speed (qualifying / replay)</td></tr>
+          </tbody>
+        </table>
+        <div class="controls-note">
+          <p>Full gamepad support: <strong>RT</strong> throttle, <strong>LT</strong> brake, left stick steer,
+             <strong>A</strong> pit, <strong>Y</strong> recover, <strong>RB</strong> camera.</p>
+          <p>On touch devices, an on-screen driving pad appears automatically with steering, throttle and brake
+             zones plus quick-access pit and camera buttons.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="faq">
+      <header class="section-head">
+        <p class="eyebrow">FAQ</p>
+        <h2>Questions from the paddock</h2>
+      </header>
+      <div class="faq-grid">
+        <details class="faq"><summary>Do I need to install anything?</summary>
+          <p>No. APEX GP 2026 is a static site built with HTML5, CSS3 and modern JavaScript modules. Open it in any modern
+             browser on desktop, tablet or phone.</p></details>
+        <details class="faq"><summary>Is this an official Formula 1 product?</summary>
+          <p>No. APEX GP 2026 is an independent, non-commercial fan project. Team and driver names are used for
+             identification only; all trademarks belong to their respective owners. No affiliation or endorsement.</p></details>
+        <details class="faq"><summary>How long is a race?</summary>
+          <p>Each circuit is a stylised 2–3 km layout, so a flying lap runs 35–55 seconds. Races are configurable from a
+             4-lap Sprint to a 10-lap Grand Prix, with 1×–3× simulation speed for the impatient.</p></details>
+        <details class="faq"><summary>Can I save my career?</summary>
+          <p>Yes. Careers are stored locally in your browser (localStorage). Autosaves happen after every round, and you
+             can export or import a save file as JSON from the settings screen.</p></details>
+        <details class="faq"><summary>Is my progress shared anywhere?</summary>
+          <p>No. The game runs entirely client-side — no accounts, no analytics, no network calls beyond loading the web
+             font. Clearing browser data clears your saves.</p></details>
+        <details class="faq"><summary>Does it work on mobile?</summary>
+          <p>Yes. The layout is responsive and the game detects touch input, showing a driving pad with steering and
+             pedals. A gamepad also works on desktop and mobile browsers that expose the Gamepad API.</p></details>
+      </div>
+    </section>
+
+    <section class="closing-cta">
+      <h2>The lights are about to go out.</h2>
+      <p>Free to play, no account, no download.</p>
+      <button class="btn btn-primary btn-lg" data-action="launch" type="button">Enter the Paddock</button>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-col">
+      <span class="brand-text">APEX<span>GP</span></span>
+      <p>Independent browser racing &amp; management sim. Not affiliated with Formula One, the FIA or any listed team.</p>
+    </div>
+    <nav class="footer-col" aria-label="Footer">
+      <h3>Game</h3>
+      <a href="#features">Features</a><a href="#modes">Modes</a><a href="#grid">Grid</a><a href="#controls">Controls</a>
+    </nav>
+    <div class="footer-col">
+      <h3>Tech</h3>
+      <p>Vanilla ES2022 modules · Canvas 2D · Web Audio API · CSS Grid · requestAnimationFrame</p>
+    </div>
+  </footer>
+</div>
+
+<!-- ============================== GAME APP ============================== -->
+<div id="app" class="app" hidden>
+  <div class="app-backdrop" id="app-backdrop"></div>
+  <div class="app-frame" id="app-frame" role="dialog" aria-modal="false" aria-label="APEX GP 2026 game">
+    <div class="app-chrome">
+      <button class="icon-btn" id="app-home" type="button" title="Back to main menu (Esc)" aria-label="Back to main menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l9-8 9 8v8a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
+      </button>
+      <div class="app-title">
+        <span class="app-title-main" id="app-screen-title">Main Menu</span>
+        <span class="app-title-sub" id="app-screen-sub">APEX GP 2026</span>
+      </div>
+      <div class="app-chrome-actions">
+        <button class="icon-btn" id="app-sound" type="button" title="Toggle sound" aria-label="Toggle sound" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4zm12.5 3a4 4 0 0 0-2-3.5v7a4 4 0 0 0 2-3.5z"/></svg>
+        </button>
+        <button class="icon-btn" id="app-pause" type="button" title="Pause" aria-label="Pause game" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="app-body" id="app-body"><!-- screens are mounted here --></div>
+  </div>
+  <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="false"></div>
+  <div class="modal-root" id="modal-root" hidden></div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
