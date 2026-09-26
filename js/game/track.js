@@ -1,5 +1,5 @@
-/**
- * track.js — circuit geometry, spatial projection, racing line and pit lane.
+﻿/**
+ * track.js â€” circuit geometry, spatial projection, racing line and pit lane.
  *
  * World units are metres. The centreline is a closed Catmull-Rom spline
  * resampled at a uniform spacing, which makes `s = index * spacing` and lets
@@ -56,43 +56,42 @@ export class Track {
   /* ------------------------------------------------------------------ */
 
   _build(controlPoints, targetLength) {
-    // 1. Centre and scale the control polygon to the requested lap length.
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const p of controlPoints) {
-      minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
-      minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
-    }
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-
-    let rawLen = 0;
-    for (let i = 0; i < controlPoints.length; i++) {
-      const a = controlPoints[i], b = controlPoints[(i + 1) % controlPoints.length];
-      rawLen += Math.hypot(b[0] - a[0], b[1] - a[1]);
-    }
-    const scale = targetLength / rawLen;
-    const ctrl = controlPoints.map((p) => ({
-      x: (p[0] - cx) * scale,
-      y: (p[1] - cy) * scale,
-      w: p[2] ?? 13,
-    }));
-
-    // 2. Densely sample the closed spline (20 steps per control segment).
+    // 1. Sample the closed spline at its natural size, then scale it so the
+    //    finished lap length matches the circuit's published length exactly.
     const STEPS = 20;
     const dense = [];
-    const n = ctrl.length;
+    const n = controlPoints.length;
     for (let i = 0; i < n; i++) {
-      const p0 = ctrl[(i - 1 + n) % n], p1 = ctrl[i], p2 = ctrl[(i + 1) % n], p3 = ctrl[(i + 2) % n];
+      const p0 = controlPoints[(i - 1 + n) % n], p1 = controlPoints[i];
+      const p2 = controlPoints[(i + 1) % n], p3 = controlPoints[(i + 2) % n];
       for (let s = 0; s < STEPS; s++) {
         const t = s / STEPS;
         dense.push({
-          x: catmullRom(p0.x, p1.x, p2.x, p3.x, t),
-          y: catmullRom(p0.y, p1.y, p2.y, p3.y, t),
-          w: lerp(p1.w, p2.w, t),
+          x: catmullRom(p0[0], p1[0], p2[0], p3[0], t),
+          y: catmullRom(p0[1], p1[1], p2[1], p3[1], t),
+          w: lerp(p1[2] ?? 13, p2[2] ?? 13, t),
         });
       }
     }
 
-    // 3. Resample at uniform arc-length spacing.
+    let splineLen = 0;
+    for (let i = 0; i < dense.length; i++) {
+      const a = dense[i], b = dense[(i + 1) % dense.length];
+      splineLen += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    const scale = targetLength / splineLen;
+    for (const p of dense) { p.x *= scale; p.y *= scale; }
+
+    // Centre the finished loop on the world origin.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of dense) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    for (const p of dense) { p.x -= cx; p.y -= cy; }
+
+    // 2. Resample at uniform arc-length spacing.
     const cum = [0];
     for (let i = 1; i <= dense.length; i++) {
       const a = dense[i - 1], b = dense[i % dense.length];
@@ -115,6 +114,7 @@ export class Track {
       py[i] = lerp(a.y, b.y, t);
       pw[i] = lerp(a.w, b.w, t);
     }
+
 
     this.px = px; this.py = py; this.pw = pw;
 
@@ -164,7 +164,7 @@ export class Track {
 
   _detectCorners() {
     const corners = [];
-    const THRESH = 0.0055;   // 1/m
+    const THRESH = 0.0022;   // 1/m â€” anything tighter than a ~450 m radius
     let start = -1;
     for (let i = 0; i < this.count; i++) {
       const k = Math.abs(this.kappa[i]);
@@ -208,7 +208,7 @@ export class Track {
         const ty = (ly[a] + ly[b]) * 0.5;
         let x = lerp(lx[i], tx, step);
         let y = lerp(ly[i], ty, step);
-        // Keep the line inside the white line (local search only — cheap).
+        // Keep the line inside the white line (local search only â€” cheap).
         const p = this._projectNear(x, y, i, 6);
         const lat = p.lateral;
         const cl = clamp(lat, -limit[i], limit[i]);
@@ -319,15 +319,16 @@ export class Track {
     }
 
     const centreIndex = bestStart + Math.floor(bestLen / 2);
+    const entryS = ((bestStart * SPACING) - 40 + this.length) % this.length;
+    const exitS = (((bestStart + bestLen) * SPACING) + 60) % this.length;
     this.pit = {
-      entryS: ((bestStart * SPACING) - 60 + this.length) % this.length,
+      entryS,
+      exitS,
+      wallS0: (entryS + 78) % this.length,
+      wallS1: (exitS - 78 + this.length) % this.length,
       boxS: (centreIndex * SPACING) % this.length,
-      exitS: (((bestStart + bestLen) * SPACING) + 70) % this.length,
-      openS0: (((bestStart * SPACING) - 34) + this.length) % this.length,
-      openS1: (((bestStart + bestLen) * SPACING) + 40) % this.length,
       offset: PIT_LANE_OFFSET,
       width: PIT_LANE_WIDTH,
-      gap: PIT_GAP,
       speedLimit: 22,          // m/s (80 km/h)
     };
   }
@@ -336,6 +337,12 @@ export class Track {
   inPitWindow(s) {
     const p = this.pit;
     return sBetween(p.entryS, p.exitS, s, this.length);
+  }
+
+  /** Is the pit wall in the way here? (the box is the only walled part) */
+  inPitWall(s) {
+    const p = this.pit;
+    return sBetween(p.wallS0, p.wallS1, s, this.length);
   }
 
   /** Lateral offset of the pit-lane centre at distance s, or null. */

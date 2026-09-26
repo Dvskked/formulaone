@@ -47,10 +47,18 @@ export function createTyre(compound = "soft") {
   };
 }
 
-export function tyreLifeEstimate(compoundKey, track, laps = 6) {
+/** Reference seconds of running used to convert a per-lap wear figure to a rate. */
+export const LAP_TIME_REF = 42;
+
+/** Per-lap wear for a fresh tyre of `compoundKey` on `track`, at nominal load. */
+export function nominalWearPerLap(compoundKey, track) {
   const c = COMPOUNDS[compoundKey] || COMPOUNDS.soft;
-  const base = { soft: 4.2, medium: 6.0, hard: 8.0, inter: 5.2, wet: 4.8 }[c.key] || 5;
-  return Math.max(1.5, base * c.life / (track.abrasiveness || 1) - 0.4 + laps * 0.02);
+  return 0.2 * c.degFactor * (track?.abrasiveness ?? 1);
+}
+
+export function tyreLifeEstimate(compoundKey, track) {
+  const c = COMPOUNDS[compoundKey] || COMPOUNDS.soft;
+  return clamp(0.82 / Math.max(0.02, nominalWearPerLap(compoundKey, track)), 1.5, 20);
 }
 
 export function makeTyre(compoundKey, track, stintStartLap = 1) {
@@ -61,29 +69,22 @@ export function makeTyre(compoundKey, track, stintStartLap = 1) {
 }
 
 /**
- * Advance a tyre by one lap.
- * @param {object} t tyre state
- * @param {object} opts { track, load, skill, isPlayer }
+ * Called once per completed lap: advances stint bookkeeping.
+ * Actual `wear` is integrated continuously by the vehicle so the HUD,
+ * strategy logic and grip model always agree.
  */
-export function wearTyre(t, opts) {
+export function ageTyre(t, opts = {}) {
   const c = COMPOUNDS[t.compound] || COMPOUNDS.soft;
   const { track, load = 1, skill = 0.85 } = opts;
-  const ab = track?.abrasiveness ?? 1;
-
-  // Base degradation, modulated by how hard the car is being pushed.
-  let rate = 0.115 * c.degFactor * ab * (0.7 + load * 0.55);
-  // Clean drivers degrade the tyres less.
-  rate *= lerp(1.06, 0.9, clamp01(skill));
-  t.wear = clamp01(t.wear + rate);
   t.age += 1;
   t.laps += 1;
-
-  // Temperature: comes in over the first few laps, then slowly drifts.
-  if (t.laps <= c.warmup) t.temp = lerp(0.3, 0.92, t.laps / c.warmup);
-  else t.temp = clamp(0.92 - 0.03 * (t.laps - c.warmup), 0.4, 1);
-
-  // Graining: hard tyres pick up degradation faster as they get old.
-  if (t.laps > t.lifeLimit * 0.55) t.grained = clamp01((t.laps - t.lifeLimit * 0.55) / (t.lifeLimit * 0.45));
+  // Clean drivers look after the tyres better than scrappy ones.
+  t.lastLapLoad = clamp(load * lerp(1.08, 0.88, clamp01(skill)), 0.2, 2);
+  // Graining: hard compounds pick up damage once they are part way through life.
+  if (t.laps > t.lifeLimit * 0.55) {
+    t.grained = clamp01((t.laps - t.lifeLimit * 0.55) / (t.lifeLimit * 0.45));
+  }
+  t.degFactor = c.degFactor;
   return t;
 }
 
@@ -151,11 +152,13 @@ export function pitStopTime(car, teamStats, compoundKey) {
   };
 }
 
-/** 2026-style fuel burn: ~110 kg per race, less than half a kilo per lap. */
-export const FUEL_PER_LAP = 1.05;
+/** Fuel: roughly 1.6 kg burned per lap, so a 6-lap race needs ~12 kg on board. */
+export const FUEL_PER_LAP = 1.6;
 
 export function raceFuelLoad(totalLaps) {
-  return +(totalLaps * FUEL_PER_LAP + 2.2).toFixed(2);
+  return +(totalLaps * FUEL_PER_LAP + 1.6).toFixed(2);
 }
 
-export const fuelBurnRate = (throttle, speed) => 0.0042 + throttle * 0.0102 + speed * 0.000045;
+/** kg/s. Calibrated so a ~45 s lap at full throttle burns FUEL_PER_LAP. */
+export const fuelBurnRate = (throttle, speed) =>
+  (0.006 + throttle * 0.03 + speed * 0.0002) * 0.88;

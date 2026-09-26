@@ -115,6 +115,10 @@ export function stepVehicle(v, dt, env) {
   v.slipMagnitude = clamp01(Math.abs(v.slipAngle) / 0.32);
   v.wheelSpin = v.controls.throttle > 0.5 && v.speed < 0.6 ? 1 : 0;
 
+  // --- position integration ----------------------------------------------
+  v.x += v.vx * dt;
+  v.y += v.vy * dt;
+
   return v;
 }
 

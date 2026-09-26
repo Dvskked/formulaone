@@ -1,0 +1,252 @@
+﻿/**
+ * ai.js â€” AI driver controller.
+ *
+ * Pure-pursuit steering towards a look-ahead point on the racing line,
+ * braking-distance-aware corner speed planning, simple traffic management,
+ * defensive line selection and a sprinkling of human error.
+ */
+
+import { clamp, clamp01, lerp, wrapPi, angleDelta, sign } from "../core/utils.js";
+import { tyreGrip } from "./tires.js";
+import { driverRating } from "../data/teams-data.js";
+
+const CORNER_MARGIN = 0.94;      // fraction of the grip ceiling an AI aims for
+const BRAKE_ACCEL = 21;          // m/s^2 assumed for planning
+const CAR_WIDTH = 2.2;
+
+export class AIController {
+  /**
+   * @param {import('./vehicle.js').Vehicle} vehicle
+   * @param {import('./track.js').Track} track
+   * @param {object} profile { pace, consistency, aggression, racecraft, defence, tyres }
+   */
+  constructor(vehicle, track, profile = {}) {
+    this.v = vehicle;
+    this.track = track;
+    const d = vehicle.driver;
+    const s = d?.stats || {};
+    this.profile = {
+      pace: profile.pace ?? clamp(0.9 + (s.pace ?? 88) / 500, 0.9, 1.02),
+      consistency: profile.consistency ?? (s.consistency ?? 88) / 100,
+      aggression: profile.aggression ?? (s.aggression ?? 85) / 100,
+      racecraft: profile.racecraft ?? (s.racecraft ?? 88) / 100,
+      defence: profile.defence ?? (s.defence ?? 86) / 100,
+      tyres: profile.tyres ?? (s.tyres ?? 88) / 100,
+    };
+    this.rng = typeof profile.rng === "function"
+      ? profile.rng
+      : (profile.rng && typeof profile.rng.next === "function" ? profile.rng.next.bind(profile.rng) : Math.random);
+    this.time = 0;
+    // How close to the theoretical ceiling this driver runs (0..1).
+    this.quality = clamp01((this.profile.pace - 0.9) / 0.14);
+    this.laneBias = (this.rng() - 0.5) * 3.2;      // preferred line offset
+    this.noisePhase = this.rng() * 100;
+    this.mistakeTimer = 3 + this.rng() * 12;
+    this.mistake = 0;
+    this.laneShift = 0;
+    this.targetLateral = 0;
+    this.reaction = lerp(0.34, 0.09, this.profile.racecraft);
+    this.stuck = 0;
+    this.blocked = false;
+  }
+
+  /** @param {object} world { cars, time, raceState } */
+  update(dt, world) {
+    this.time += dt;
+    const v = this.v, track = this.track;
+    if (v.retired || v.finished) {
+      v.desiredControls = { throttle: 0, brake: v.retired ? 1 : 0.4, steer: 0, handbrake: false };
+      return;
+    }
+
+    const speed = v.speed;
+    const tyreFactor = tyreGrip(v.tire);
+    const carLat = v.spec.latAccel * tyreFactor * (1 - v.damage * 0.1);
+    const margin = CORNER_MARGIN * lerp(0.9, 1.0, this.quality) * lerp(0.94, 1.0, this.profile.consistency);
+
+    // ---- occasional human error -----------------------------------------
+    this.mistakeTimer -= dt;
+    if (this.mistakeTimer <= 0) {
+      this.mistakeTimer = lerp(22, 5, 1 - this.profile.consistency) + this.rng() * 14;
+      this.mistake = (this.rng() - 0.45) * lerp(2.4, 0.4, this.profile.consistency);
+    }
+    this.mistake *= Math.exp(-dt * 1.1);
+
+    // ---- traffic ---------------------------------------------------------
+    const traffic = this._scanTraffic(world, dt);
+    this.laneShift = lerp(this.laneShift, traffic.laneShift, 1 - Math.exp(-dt * 2.2));
+
+    // ---- pit lane target --------------------------------------------------
+    const pit = track.pit;
+    const pitting = v.pit.requested;
+    const laneLat = track.halfWidth[v.trackIndex] + pit.offset;
+    if (v.inPitLane) {
+      // Already in the lane: stay until past the exit transition, then merge.
+      if (pitting || track.signedDelta(v.s, pit.wallS1) > -25) this.targetLateral = laneLat;
+      else this.targetLateral = laneLat - (laneLat - track.rlLateral[track.indexAt(v.s + 20)]) * 0.75;
+    } else if (pitting) {
+      if (track.inPitWindow(v.s)) {
+        this.targetLateral = laneLat;
+      } else {
+        // Line up on the right-hand edge so the entry crossing is clean.
+        const toEntry = track.delta(v.s, pit.entryS);
+        const i = track.indexAt(v.s + 20);
+        this.targetLateral = toEntry < 190 ? track.halfWidth[i] - 2.4 : 0;
+      }
+    } else {
+      const lookIdx = track.indexAt(v.s + Math.max(14, speed * 0.5));
+      let lat = track.rlLateral[lookIdx] + this.laneBias;
+      lat += this.laneShift;
+      if (traffic.defend) lat += traffic.defendOffset;
+      const limit = track.halfWidth[lookIdx] - 1.2;
+      this.targetLateral = clamp(lat, -limit, limit);
+    }
+
+    // ---- steering (pure pursuit) ------------------------------------------
+    // The look-ahead point is the racing line shifted by an ABSOLUTE lateral
+    // offset from the centreline (rlLateral is already baked into rlX/rlY).
+    const look = clamp(11 + speed * 0.62, 12, 78);
+    const targetIdx = track.indexAt(v.s + look);
+    const base = { x: track.rlX[targetIdx], y: track.rlY[targetIdx] };
+    const normal = { x: track.nx[targetIdx], y: track.ny[targetIdx] };
+    const tx = base.x + normal.x * (this.targetLateral - track.rlLateral[targetIdx]);
+    const ty = base.y + normal.y * (this.targetLateral - track.rlLateral[targetIdx]);
+
+    const toTarget = Math.atan2(ty - v.y, tx - v.x);
+    const err = angleDelta(v.heading, toTarget);
+    let steer = clamp(err * 2.1 - v.slipAngle * 0.85, -1, 1);
+    // Smooth so the car does not saw at the steering limit.
+    const noise = Math.sin(this.time * 1.1 + this.noisePhase) * 0.03 * (1 - this.profile.consistency);
+    steer = clamp(steer + noise + this.mistake * 0.35, -1, 1);
+
+    // ---- speed planning ---------------------------------------------------
+    let vTarget = v.spec.topSpeed * 1.02;
+    const horizon = clamp(28 + speed * 2.4, 40, 320);
+    const decel = BRAKE_ACCEL * lerp(0.82, 1.02, this.quality);
+    for (let d = 2; d < horizon; d += 7) {
+      const i = track.indexAt(v.s + d);
+      const k = Math.abs(track.rlKappa[i]);
+      const vc = k < 1e-5 ? 999 : Math.sqrt(carLat / k) * margin;
+      const allowed = Math.sqrt(vc * vc + 2 * decel * d);
+      if (allowed < vTarget) vTarget = allowed;
+    }
+    // Damage and rough surfaces slow the whole car down.
+    vTarget *= 1 - v.damage * 0.16;
+    if (v.surface === "grass") vTarget = Math.min(vTarget, 22);
+    if (v.surface === "kerb") vTarget *= 0.96;
+    if (v.inPitLane) vTarget = Math.min(vTarget, track.pit.speedLimit * 0.92);
+    if (pitting && v.inPitLane && track.delta(v.s, track.pit.boxS) < 55) vTarget = 1.2;
+    if (this.mistake < -0.4) vTarget *= 0.94;
+    vTarget *= lerp(0.995, 1.005, this.profile.consistency);
+
+    if (traffic.limit != null) vTarget = Math.min(vTarget, traffic.limit);
+
+    // ---- pedals -----------------------------------------------------------
+    const dv = vTarget - speed;
+    let throttle = 0, brake = 0;
+    if (dv > 0.4) throttle = clamp01(dv / 6);
+    else if (dv < -0.6) brake = clamp01(-dv / 9);
+    else throttle = 0.45;
+
+    // Do not add power while the car is still rotating.
+    const cornering = Math.abs(steer) > 0.35 && speed > 18;
+    if (cornering) throttle *= lerp(1, 0.42, clamp01((Math.abs(steer) - 0.35) / 0.5));
+    if (Math.abs(v.slipAngle) > 0.16) throttle *= 0.35;
+    if (v.fuel <= 0.2) throttle *= 0.35;
+
+    // ---- recovery ---------------------------------------------------------
+    if (Math.abs(v.lateral) > track.halfWidth[v.trackIndex] + 3) {
+      // Off the racing surface: aim back to the centre and be gentle.
+      const limit = track.halfWidth[v.trackIndex] - 1;
+      this.targetLateral = clamp(this.targetLateral, -limit, limit);
+      throttle = Math.min(throttle, 0.55);
+    }
+    if (speed < 1.2 && !v.pitStopped) {
+      this.stuck += dt;
+      if (this.stuck > 1.4) { throttle = 1; brake = 0; }
+      if (this.stuck > 6) {
+        // Reverse out.
+        throttle = 0; brake = 1; steer = -sign(v.lateral || 1) * 0.7;
+        if (this.stuck > 8) this.stuck = 0;
+      }
+    } else this.stuck = 0;
+
+    v.desiredControls = {
+      throttle: clamp01(throttle),
+      brake: clamp01(brake),
+      steer,
+      handbrake: false,
+    };
+  }
+
+  /** Look for cars ahead and decide whether to lift, pass or defend. */
+  _scanTraffic(world, dt) {
+    const v = this.v, track = this.track;
+    let limit = null;
+    let laneShift = 0;
+    let defend = false;
+    let defendOffset = 0;
+    let closestAhead = Infinity;
+
+    for (const other of world.cars) {
+      if (other === v || other.retired) continue;
+      const gap = track.signedDelta(v.s, other.s);
+      if (gap <= 0 || gap > 60) continue;
+      const dLat = other.lateral - v.lateral;
+      const lateralGap = Math.abs(dLat) - CAR_WIDTH;
+      if (gap < closestAhead) closestAhead = gap;
+
+      if (lateralGap < CAR_WIDTH) {
+        // Directly in front. Match speed, then look for a way past.
+        const safe = Math.max(14, other.speed - (36 - gap) * 0.32);
+        limit = Math.min(limit ?? Infinity, safe);
+        if (gap < 16) {
+          const side = dLat > 0 ? -1 : 1;   // pick the side with more room
+          const room = this._roomFor(v, side);
+          laneShift += side * lerp(1.2, 4.2, this.profile.aggression) * room;
+        }
+      } else if (gap < 26) {
+        // Alongside: an aggressive AI will defend the inside.
+        const behindGap = track.signedDelta(other.s, v.s);
+        if (behindGap < 14 && other.speed > v.speed + 0.5) {
+          defend = true;
+          const inside = -sign(track.rlKappa[v.trackIndex] || 1);
+          defendOffset = inside * 2.6 * this.profile.defence;
+        }
+      }
+    }
+
+    // Blown hairpin: back out rather than drive into the back of them.
+    if (closestAhead < 7 && limit == null) limit = 10;
+
+    return {
+      limit,
+      laneShift: clamp(laneShift, -6, 6),
+      defend,
+      defendOffset: clamp(defendOffset, -4, 4),
+    };
+  }
+
+  _roomFor(v, side) {
+    const track = this.track;
+    const i = track.indexAt(v.s + 22);
+    const limit = track.halfWidth[i] - 1.4;
+    const target = clamp(v.lateral + side * 4.5, -limit, limit);
+    return clamp01((target - v.lateral) / (side * 4.5 || 1));
+  }
+}
+
+/** Build a controller profile for a driver/team pairing. */
+export function makeAIProfile(driver, car, rng, opts = {}) {
+  const rating = driverRating(driver);
+  return {
+    pace: clamp(0.9 + (rating - 84) / 260 + (car.topSpeed - 90) * 0.0016, 0.9, 1.03),
+    consistency: driver.stats.consistency / 100,
+    aggression: driver.stats.aggression / 100,
+    racecraft: driver.stats.racecraft / 100,
+    defence: driver.stats.defence / 100,
+    tyres: driver.stats.tyres / 100,
+    rng,
+    ...opts,
+  };
+}

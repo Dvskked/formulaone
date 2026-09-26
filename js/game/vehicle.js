@@ -5,9 +5,9 @@
  * mostly state plus a few well-behaved mutators.
  */
 
-import { clamp, clamp01, wrapPi } from "../core/utils.js";
+import { clamp, clamp01, TAU } from "../core/utils.js";
 import { CAR, stepVehicle, updateGearbox } from "./physics.js";
-import { makeTyre, tyreGrip, fuelBurnRate, COMPOUNDS } from "./tires.js";
+import { makeTyre, tyreGrip, fuelBurnRate, COMPOUNDS, LAP_TIME_REF } from "./tires.js";
 
 let nextVehicleId = 1;
 
@@ -98,7 +98,6 @@ export class Vehicle {
   /* ------------------------------ placement ------------------------------ */
 
   placeAt(track, odo, lateral = 0) {
-    const L = track.length;
     this.odo = odo;
     this.s = track.wrapS(odo);
     const i = track.indexAt(this.s);
@@ -108,20 +107,16 @@ export class Vehicle {
     this.x = p.x; this.y = p.y;
     this.heading = track.heading[i];
     this.vx = 0; this.vy = 0; this.speed = 0; this.gear = 1; this.rpm = CAR.idleRpm;
-    this.lap = Math.max(0, Math.floor(track.wrapS(odo) / track.length) === 0 ? Math.floor(odo / L) : Math.floor(odo / L));
     this.startOdo = odo;
+    this.lap = 0;
   }
 
   placeOnGrid(track, slot) {
-    // Two-by-two staggered grid, eight metres apart, behind the line.
+    // Two-by-two staggered grid, nine metres apart, behind the line.
     const row = Math.floor(slot / 2);
     const side = slot % 2 === 0 ? -1 : 1;
-    const backoff = 12 + row * 9;
-    const odo = -backoff;
-    this.placeAt(track, odo, side * 3.6);
+    this.placeAt(track, -(12 + row * 9), side * 3.6);
     this.gridSlot = slot;
-    this.lap = 0;
-    this.lapsDone = 0;
     return this;
   }
 
@@ -152,6 +147,7 @@ export class Vehicle {
     const d = p.s - this.s;
     if (d < -L / 2) this.odo += L;
     else if (d > L / 2) this.odo -= L;
+    this.odo += d;                 // continuous odometer, not just per-lap jumps
     this.s = p.s;
     this.trackIndex = p.index;
     this.lateral = p.lateral;
@@ -177,17 +173,18 @@ export class Vehicle {
 
     // Fuel burn.
     if (this.fuel > 0 && !this.retired) {
-      this.fuel = Math.max(0, this.fuel - fuelBurnRate(this.controls.throttle, this.speed) * dt * 1.35);
+      this.fuel = Math.max(0, this.fuel - fuelBurnRate(this.controls.throttle, this.speed) * dt);
     }
 
-    // Wear accrues continuously so the HUD moves smoothly, not once per lap.
+    // Tyre wear integrates continuously so the HUD, the grip model and the
+    // strategy logic always agree on the same number.
     const c = COMPOUNDS[this.tire.compound] || COMPOUNDS.soft;
-    const load = clamp01(0.35 + Math.abs(this.lateralG) / 20 + this.slipMagnitude * 0.3);
-    const rate = 0.000105 * c.degFactor * (track?.abrasiveness ?? 1) * (0.7 + load * 0.55);
-    this.tire.wear = clamp01(this.tire.wear + rate * dt * 60 * 0.0166);
-    this.tire.temp = clamp(this.tire.temp + (this.speed > 12 ? 0.004 : -0.002) * dt, 0.2, 1);
+    const load = clamp(0.35 + Math.abs(this.lateralG) / 18 + this.slipMagnitude * 0.35, 0.3, 1.8);
+    const perSecond = (0.2 * c.degFactor * (track?.abrasiveness ?? 1) * load) / LAP_TIME_REF;
+    this.tire.wear = clamp01(this.tire.wear + perSecond * dt);
+    this.tire.temp = clamp(this.tire.temp + (this.speed > 12 ? 0.006 : -0.0035) * dt * (1 - this.damage * 0.5), 0.2, 1);
 
-    this.wheelAngle = (this.wheelAngle + this.yawRate * dt * 2.4) % CAR.geomsafeWheel;
+    this.wheelAngle = (this.wheelAngle + this.yawRate * dt * 2.4) % TAU;
     this.impactFlash = Math.max(0, this.impactFlash - dt * 3);
     this.lastImpact = Math.max(0, (this.lastImpact || 0) - dt * 6);
     this.skid = Math.max(this.skid * 0.94, this.slipMagnitude);
@@ -213,6 +210,8 @@ export class Vehicle {
     this.pit.stopped = true;
     this.pit.timer = duration;
     this.pit.duration = duration;
+    this.pit.requested = false;
+    this.pit.targetCompound = null;
     this.pitStopped = true;
     this.pitStops++;
     this.pitDone = true;
@@ -243,17 +242,16 @@ export class Vehicle {
 
   /* ------------------------------ readouts ------------------------------ */
 
+  /** Laps completed since the session started. */
   get lapsDone() {
-    return Math.max(0, Math.floor(this.odo / this._length) + 1 - Math.floor(this.startOdo / this._length) + (this.startOdo < 0 ? 0 : 0));
+    const L = this._length;
+    if (!L) return 0;
+    return Math.floor(this.odo / L) - Math.floor(this.startOdo / L);
   }
 
+  /** Monotonic distance used for classification. */
   get progressValue() {
-    // Monotonic distance used for classification.
     return this.odo;
-  }
-
-  get paceDelta() {
-    return null;
   }
 
   get kmh() {
@@ -279,8 +277,8 @@ export function bindTrack(vehicles, track) {
 }
 
 function isInPitLane(track, s, lateral) {
+  // Only inside the pit window: running wide anywhere else is just a big.
+  if (!track.inPitWindow(s)) return false;
   const i = track.indexAt(s);
-  return lateral > track.halfWidth[i] + 1.2;
+  return lateral > track.halfWidth[i] + 1.6;
 }
-
-export { wrapPi };
