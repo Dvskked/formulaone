@@ -1,14 +1,15 @@
 {
-  "name": "apex-gp-2026",
-  "version": "1.0.0",
-  "description": "APEX GP 2026 — browser Formula 1 racing and team management simulation",
+  "name": "formula-1-predestinato",
+  "version": "2.0.0",
+  "description": "FORMULA 1: PREDESTINATO - juego de Formula 1 (modo carrera de piloto, F2 -> F1) en el navegador",
   "type": "module",
   "private": true,
   "scripts": {
     "start": "npx --yes http-server -p 8080 -c-1 .",
     "serve": "python -m http.server 8080",
-    "test": "node tests/smoke.mjs"
+    "test": "node tests/run-all.mjs",
+    "check": "node tests/syntax.mjs"
   },
-  "keywords": ["formula1", "racing", "game", "canvas", "simulation"],
+  "keywords": ["formula1", "f1", "f2", "juego f1", "carrera", "canvas", "navegador"],
   "license": "MIT"
 }

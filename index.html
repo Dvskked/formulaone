@@ -3,263 +3,82 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>FORMULA 1: Predestinato — Juego de Fórmula 1 y gestión de escudería</title>
-<meta name="description" content="Predestinato es un juego de Fórmula 1 gratis para navegador: corre con los 11 equipos de la parrilla 2026, gestiona neumáticos, paradas en boxes, I+D y contratos en un simulador cenital a 60 FPS." />
-<meta name="keywords" content="juego formula 1, f1 navegador, simulador f1, managerial f1, juego de carreras, paradoja 2026, juego f1 html5" />
-<meta name="theme-color" content="#08090d" />
-<meta name="author" content="Predestinato" />
-<link rel="canonical" href="https://predestinato.example/index.html" />
-
-<meta property="og:type" content="website" />
-<meta property="og:site_name" content="FORMULA 1: Predestinato" />
-<meta property="og:title" content="FORMULA 1: Predestinato — Fórmula 1 en el navegador" />
-<meta property="og:description" content="Al volante o al mando del equipo: clasificación, neumáticos, ventanas de parada, podios y una carrera por temporadas." />
-<meta property="og:locale" content="es_ES" />
-<meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="FORMULA 1: Predestinato" />
-<meta name="twitter:description" content="Simulador cenital a 60 FPS + managerial completo. Se juega al instante en tu navegador." />
-
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Oxanium:wght@500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e10600'/%3E%3Ctext x='16' y='24' font-family='Arial,Helvetica,sans-serif' font-size='24' font-weight='bold' font-style='italic' text-anchor='middle' fill='%23fff'%3E1%3C/text%3E%3C/svg%3E" />
+<title>FORMULA 1: PREDESTINATO</title>
+<meta name="description" content="Predestinato: juego de Formula 1 en el navegador. Modo carrera de piloto al estilo FIFA: empieza en Formula 2, escala hasta Formula 1, con garaje, buzon, calendario, sprints y carreras vistas desde arriba." />
+<meta name="theme-color" content="#05060a" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%230a0b10'/%3E%3Cpath d='M14 12h30l-3 10H17z' fill='%23e8112d'/%3E%3Cpath d='M17 26h27l-4 12H20z' fill='%23fff'/%3E%3Cpath d='M20 42h22l-3 10H17z' fill='%23e8112d'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="css/styles.css" />
-
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "VideoGame",
-  "name": "FORMULA 1: Predestinato",
-  "description": "Simulador de Fórmula 1 para navegador con gestión de escudería y la parrilla oficial de 11 equipos en 2026.",
-  "genre": ["Racing", "Simulation", "Management"],
-  "gamePlatform": "Web Browser",
-  "operatingSystem": "Any",
-  "applicationCategory": "Game",
-  "inLanguage": "es",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
-  "featureList": [
-    "Carrera cenital a 60 FPS sobre canvas",
-    "Parrilla 2026 con 11 equipos y 22 pilotos",
-    "Clasificación (Q1/Q2/Q3) y Grandes Premios",
-    "Desgaste de neumáticos, combustible y paradas obligatorias",
-    "Carrera por temporadas con contratos y ofertas de equipos",
-    "Árbol de I+D y creación de piloto y escudería"
-  ]
-}
-</script>
 </head>
 <body>
-<a class="skip-link" href="#app">Ir al juego</a>
 
-<!-- ============================== PORTADA ============================== -->
-<div id="landing">
-  <header class="topbar" role="banner">
-    <a class="brand" href="#landing-top" aria-label="FORMULA 1: Predestinato, inicio">
-      <span class="brand-mark" aria-hidden="true">1</span>
-      <span class="brand-text">FORMULA&nbsp;<span>1</span><em>: Predestinato</em></span>
-    </a>
-    <nav class="topnav" aria-label="Principal">
-      <a href="#features">Características</a>
-      <a href="#modes">Modos</a>
-      <a href="#grid">Parrilla 2026</a>
-      <a href="#controls">Controles</a>
-      <a href="#faq">Preguntas</a>
-    </nav>
-    <div class="topbar-actions">
-      <button class="btn btn-ghost" id="landing-sound-toggle" type="button" aria-pressed="false" title="Activar o desactivar el sonido">Sonido&nbsp;OFF</button>
-      <button class="btn btn-primary" data-action="launch" type="button">Entrar al garaje</button>
+<!-- ══════════════════ PANTALLA DE CARGA ══════════════════ -->
+<div id="boot" class="boot">
+  <canvas id="boot-canvas" class="boot-canvas" aria-hidden="true"></canvas>
+  <div class="boot-inner">
+    <div class="boot-logo">
+      <span class="f1">FORMULA</span><span class="one">1</span><span class="sub">PREDESTINATO</span>
+    </div>
+    <div class="boot-bar"><i id="boot-fill"></i></div>
+    <div class="boot-meta">
+      <span id="boot-status">Iniciando sistemas</span>
+      <span id="boot-pct">0%</span>
+    </div>
+    <p class="boot-tip" id="boot-tip">Cargando…</p>
+  </div>
+  <p class="boot-legal">Juego de fans, no oficial. Sin relación con Formula One, la FIA ni los equipos citados.</p>
+</div>
+
+<!-- ══════════════════ MENÚ PRINCIPAL ══════════════════ -->
+<div id="menu" class="menu" hidden>
+  <div class="menu-bg" aria-hidden="true"><canvas id="menu-canvas"></canvas></div>
+  <header class="menu-top">
+    <div class="brand">
+      <span class="f1">FORMULA</span><span class="one">1</span><span class="sub">PREDESTINATO</span>
+    </div>
+    <div class="menu-top-actions">
+      <button class="btn btn-ghost" id="menu-sound" type="button" aria-pressed="true">Sonido ON</button>
+      <button class="btn btn-ghost" id="menu-settings" type="button">Ajustes</button>
     </div>
   </header>
-
-  <main>
-    <section class="hero" id="landing-top">
-      <div class="hero-bg" aria-hidden="true"><canvas id="hero-canvas"></canvas></div>
-      <div class="hero-inner">
-        <p class="eyebrow">Temporada 2026 · 11 equipos · 22 pilotos</p>
-        <h1>Manda tú.<br /><em>Todo está predestinado.</em></h1>
-        <p class="lede">
-          Predestinato es un Fórmula 1 completo que funciona directamente en el navegador. Ataque una vuelta de
-          clasificación, gestiona neumáticos, combustible y ventanas de parada en un Gran Premio, y construye una
-          carrera por temporadas sobre un lienzo HTML5 bloqueado a 60 FPS.
-        </p>
-        <div class="cta-row">
-          <button class="btn btn-primary btn-lg" data-action="launch" type="button">Empezar mi carrera</button>
-          <button class="btn btn-outline btn-lg" data-action="launch" data-mode="quick" type="button">Carrera rápida</button>
-        </div>
-        <ul class="hero-stats" aria-label="Datos destacados del juego">
-          <li><strong>60</strong><span>FPS Canvas</span></li>
-          <li><strong>11</strong><span>Equipos</span></li>
-          <li><strong>12</strong><span>Rondas</span></li>
-          <li><strong>0</strong><span>Instalaciones</span></li>
-        </ul>
-      </div>
-    </section>
-
-    <section class="section" id="features">
-      <header class="section-head">
-        <p class="eyebrow">Características</p>
-        <h2>Todo lo que un simulador moderno necesita, y nada más</h2>
-      </header>
-      <div class="card-grid" id="features-grid"></div>
-    </section>
-
-    <section class="section section-alt" id="modes">
-      <header class="section-head">
-        <p class="eyebrow">Modos de juego</p>
-        <h2>Elige tu asiento en el paddock</h2>
-      </header>
-      <div class="card-grid">
-        <article class="card mode-card">
-          <span class="card-badge">Carrera</span>
-          <h3>Jefe de equipo / Piloto</h3>
-          <p>Simulador de gestión por temporadas: firma contratos, gasta los premios en I+D, persigue ofertas en
-             función de tu reputación y pelea por los dos títulos sobre un calendario de 12 rondas.</p>
-          <ul class="tick-list">
-            <li>Ofertas de contrato según reputación</li>
-            <li>Clasificación de pilotos y constructores</li>
-            <li>Árbol de I+D fuera de temporada (potencia, aerodinámica, fiabilidad, mecánicos)</li>
-          </ul>
-        </article>
-        <article class="card mode-card">
-          <span class="card-badge">Fin de semana</span>
-          <h3>Clasificación → Gran Premio</h3>
-          <p>Un fin de semana completo. Q1 y Q2 se simulan y tú sales a por la pole en Q3. Parrilla bloqueada,
-             semáforo, parada obligatoria, punto de vuelta rápida y podio.</p>
-          <ul class="tick-list">
-            <li>Puntos reales 25/18/15/12/10/8/6/4/2/1</li>
-            <li>Matriz de estrategia blando / medio / duro</li>
-            <li>Decisiones de una o dos paradas</li>
-          </ul>
-        </article>
-        <article class="card mode-card">
-          <span class="card-badge">Garaje</span>
-          <h3>Piloto y escudería propios</h3>
-          <p>Crea tu piloto —nombre, nacionalidad, dorsal, estadísticas— y elige qué asiento de la parrilla 2026
-             quieres. O sustituye un constructor entero por un equipo propio en la lista de los 11.</p>
-          <ul class="tick-list">
-            <li>Parrilla 2026 completa con los equipos oficiales</li>
-            <li>Colores de decoración y dorsal propios</li>
-            <li>Sustituye a cualquier piloto o a cualquier equipo</li>
-          </ul>
-        </article>
-      </div>
-    </section>
-
-    <section class="section" id="grid">
-      <header class="section-head">
-        <p class="eyebrow">La parrilla 2026</p>
-        <h2>Los once constructores oficiales, veintidós asientos</h2>
-        <p class="section-sub">McLaren, Red Bull, Mercedes, Ferrari, Racing Bulls, Alpine, Haas, Audi, Williams,
-           Aston Martin y el nuevo Cadillac.</p>
-      </header>
-      <div class="grid-teams" id="teams-grid"></div>
-    </section>
-
-    <section class="section section-alt" id="controls">
-      <header class="section-head">
-        <p class="eyebrow">Controles</p>
-        <h2>Teclado, mando o pantalla táctil</h2>
-      </header>
-      <div class="controls-wrap">
-        <table class="keytable">
-          <caption class="sr-only">Controles de teclado</caption>
-          <tbody>
-            <tr><th><kbd>W</kbd> / <kbd>↑</kbd></th><td>Acelerador</td></tr>
-            <tr><th><kbd>S</kbd> / <kbd>↓</kbd></th><td>Freno / marcha atrás</td></tr>
-            <tr><th><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd></th><td>Dirección</td></tr>
-            <tr><th><kbd>Espacio</kbd></th><td>Freno de mano (girar el coche)</td></tr>
-            <tr><th><kbd>P</kbd></th><td>Pedir parada / menú de boxes</td></tr>
-            <tr><th><kbd>R</kbd></th><td>Devolver el coche a pista</td></tr>
-            <tr><th><kbd>C</kbd></th><td>Cambiar el zoom de cámara</td></tr>
-            <tr><th><kbd>Esc</kbd> / <kbd>Tab</kbd></th><td>Pausa y menú de sesión</td></tr>
-            <tr><th><kbd>1</kbd>–<kbd>4</kbd></th><td>Velocidad de simulación (clasificación / repetición)</td></tr>
-          </tbody>
-        </table>
-        <div class="controls-note">
-          <p>Soporte completo de mando: <strong>RT</strong> acelerador, <strong>LT</strong> freno, stick izquierdo
-             para dirigir, <strong>A</strong> boxes, <strong>Y</strong> recuperar, <strong>RB</strong> cámara.</p>
-          <p>En dispositivos táctiles aparece automáticamente un panel de conducción con dirección, acelerador y
-             freno, más botones rápidos de boxes y cámara.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="faq">
-      <header class="section-head">
-        <p class="eyebrow">Preguntas</p>
-        <h2>Dudas del paddock</h2>
-      </header>
-      <div class="faq-grid">
-        <details class="faq"><summary>¿Tengo que instalar algo?</summary>
-          <p>No. Predestinato es un sitio estático hecho con HTML5, CSS3 y módulos de JavaScript modernos. Ábrelo en
-             cualquier navegador actual, en ordenador, tableta o móvil.</p></details>
-        <details class="faq"><summary>¿Es un producto oficial de Fórmula 1?</summary>
-          <p>No. Predestinato es un proyecto de fans, independiente y no comercial. Los nombres de equipos y pilotos
-             se usan solo para identificarlos; todas las marcas pertenecen a sus titulares. Sin afiliación ni
-             respaldo oficial.</p></details>
-        <details class="faq"><summary>¿Cuánto dura una carrera?</summary>
-          <p>Cada circuito es un trazado estilizado de 2 a 3 km, así que una vuelta rápida dura entre 35 y 55
-             segundos. Las carreras se configuran desde un Sprint de 4 vueltas hasta un Gran Premio de 10, con
-             velocidad de simulación de 1× a 3× para los impacientes.</p></details>
-        <details class="faq"><summary>¿Puedo guardar mi carrera?</summary>
-          <p>Sí. Las carreras se guardan en tu navegador (localStorage) de forma automática al final de cada ronda, y
-             puedes exportar o importar el archivo en JSON desde los ajustes.</p></details>
-        <details class="faq"><summary>¿Se comparte mi progreso?</summary>
-          <p>No. El juego funciona por completo en tu dispositivo: sin cuentas, sin analítica y sin llamadas de red
-             más allá de cargar la tipografía. Si borras los datos del navegador, pierdes las partidas guardadas.</p></details>
-        <details class="faq"><summary>¿Funciona en móvil?</summary>
-          <p>Sí. El diseño es adaptable y el juego detecta la entrada táctil, mostrando un panel de dirección y
-             pedales. También funciona un mando en cualquier navegador que exponga la API de Gamepad.</p></details>
-      </div>
-    </section>
-
-    <section class="closing-cta">
-      <h2>Las luces están a punto de apagarse.</h2>
-      <p>Gratis, sin cuenta y sin descargas.</p>
-      <button class="btn btn-primary btn-lg" data-action="launch" type="button">Entrar al paddock</button>
-    </section>
+  <main class="menu-main">
+    <div class="menu-cards">
+      <button class="menu-card menu-card-continue" id="mc-continue" type="button">
+        <span class="menu-card-tag">Continuar</span>
+        <span class="menu-card-title" id="mc-continue-title">Modo Carrera</span>
+        <span class="menu-card-desc" id="mc-continue-desc">No hay ninguna carrera guardada en este dispositivo.</span>
+        <span class="menu-card-go">Continuar carrera →</span>
+      </button>
+      <button class="menu-card menu-card-new" id="mc-new" type="button">
+        <span class="menu-card-tag">Nuevo</span>
+        <span class="menu-card-title">Nueva carrera</span>
+        <span class="menu-card-desc">Crea tu piloto y tu escudería, o elige un asiento en la parrilla de F2.</span>
+        <span class="menu-card-go">Empezar →</span>
+      </button>
+      <button class="menu-card" id="mc-saves" type="button">
+        <span class="menu-card-tag">Partidas</span>
+        <span class="menu-card-title">Partidas guardadas</span>
+        <span class="menu-card-desc">Autoguardado local. Tres huecos, sin cuentas ni nube.</span>
+        <span class="menu-card-go">Gestionar →</span>
+      </button>
+      <button class="menu-card" id="mc-how" type="button">
+        <span class="menu-card-tag">Ayuda</span>
+        <span class="menu-card-title">Cómo se juega</span>
+        <span class="menu-card-desc">Controles, sistema de carrera, subida de F2 a F1 y objetos.</span>
+        <span class="menu-card-go">Ver guía →</span>
+      </button>
+    </div>
+    <aside class="menu-side" id="menu-side"></aside>
   </main>
-
-  <footer class="footer">
-    <div class="footer-col">
-      <span class="brand-text">FORMULA&nbsp;<span>1</span><em>: Predestinato</em></span>
-      <p>Simulador independiente de carreras y gestión para navegador. Sin relación con Formula One, la FIA ni los equipos citados.</p>
-    </div>
-    <nav class="footer-col" aria-label="Pie de página">
-      <h3>Juego</h3>
-      <a href="#features">Características</a><a href="#modes">Modos</a><a href="#grid">Parrilla</a><a href="#controls">Controles</a>
-    </nav>
-    <div class="footer-col">
-      <h3>Tecnología</h3>
-      <p>Módulos ES2022 nativos · Canvas 2D · Web Audio API · CSS Grid · requestAnimationFrame</p>
-    </div>
+  <footer class="menu-foot">
+    <span id="menu-foot-text">Todo ocurre en tu dispositivo. Sin anuncios, sin registro, sin Instalaciones.</span>
   </footer>
 </div>
 
-<!-- ============================== JUEGO ============================== -->
+<!-- ══════════════════ APLICACIÓN ══════════════════ -->
 <div id="app" class="app" hidden>
-  <div class="app-backdrop" id="app-backdrop"></div>
-  <div class="app-frame" id="app-frame" role="dialog" aria-modal="false" aria-label="Juego FORMULA 1: Predestinato">
-    <div class="app-chrome">
-      <button class="icon-btn" id="app-home" type="button" title="Volver al menú principal (Esc)" aria-label="Volver al menú principal">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l9-8 9 8v8a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
-      </button>
-      <div class="app-title">
-        <span class="app-title-main" id="app-screen-title">Menú principal</span>
-        <span class="app-title-sub" id="app-screen-sub">FORMULA 1: Predestinato</span>
-      </div>
-      <div class="app-chrome-actions">
-        <button class="icon-btn" id="app-sound" type="button" title="Activar o desactivar el sonido" aria-label="Sonido" aria-pressed="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4zm12.5 3a4 4 0 0 0-2-3.5v7a4 4 0 0 0 2-3.5z"/></svg>
-        </button>
-        <button class="icon-btn" id="app-pause" type="button" title="Pausa" aria-label="Pausar" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>
-        </button>
-      </div>
-    </div>
-    <div class="app-body" id="app-body"><!-- las pantallas se montan aquí --></div>
-  </div>
-  <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="false"></div>
+  <header class="appbar" id="appbar"></header>
+  <div class="app-body" id="app-body"></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
   <div class="modal-root" id="modal-root" hidden></div>
 </div>
 
