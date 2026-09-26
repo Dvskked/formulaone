@@ -41,6 +41,7 @@ export class Vehicle {
     this.damage = 0;
     this.impactFlash = 0;
     this.lastImpact = 0;
+    this.contactCooldown = 0;   // stops one scrape costing 60 hits of damage
 
     // --- controls
     this.controls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
@@ -56,6 +57,9 @@ export class Vehicle {
     this.retired = false;
     this.retireReason = "";
     this.classified = false;
+    // Set once the car has taken the flag or stopped. It may still coast down
+    // but it must never be reversed back down the circuit.
+    this.ended = false;
 
     // --- timing
     this.lapStartTime = 0;
@@ -244,6 +248,26 @@ export class Vehicle {
     return Math.floor(this.odo / L) - Math.floor(this.startOdo / L);
   }
 
+  /**
+   * Laps completed *since the start/finish line*.
+   *
+   * The grid sits a few metres behind the line, so `lapsDone` reads 1 the
+   * moment a car reaches the line — that first run is the untimed out-lap.
+   * Race distance and strategy are always expressed in `raceLaps`, which is
+   * 0 at the line and 1 after the first flying lap.
+   */
+  get raceLaps() {
+    const L = this._length;
+    if (!L) return 0;
+    return Math.max(0, Math.floor(this.odo / L));
+  }
+
+  /** Metres still to run before crossing the line for the Nth time. */
+  get distanceToLine() {
+    const L = this._length || 1;
+    return L - (this.odo - Math.floor(this.odo / L) * L);
+  }
+
   /** Monotonic distance used for classification. */
   get progressValue() {
     return this.odo;
@@ -275,5 +299,8 @@ function isInPitLane(track, s, lateral) {
   // Only inside the pit window: running wide anywhere else is just a big.
   if (!track.inPitWindow(s)) return false;
   const i = track.indexAt(s);
-  return lateral > track.halfWidth[i] + 1.6;
+  // Must agree with the threshold used to shunt a car off the racing line
+  // before the pit wall (hw + 1.4). Sitting at exactly that offset used to
+  // count as "on track", so cars stalled in the dead zone and missed the box.
+  return lateral > track.halfWidth[i] + 1.2;
 }

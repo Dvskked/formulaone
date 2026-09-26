@@ -26,11 +26,17 @@ export const CAR = {
 export const SURFACES = {
   asphalt: { grip: 1.0, drag: 1.0, rumble: 0, name: "Track" },
   kerb: { grip: 0.93, drag: 1.1, rumble: 1, name: "Kerb" },
-  grass: { grip: 0.52, drag: 3.2, rumble: 0.35, name: "Grass" },
-  gravel: { grip: 0.36, drag: 7.5, rumble: 0.8, name: "Gravel" },
+  // Run-off has to be survivable. If drag here outruns the available drive
+  // force, a car that puts one wheel over the white line is stranded at
+  // walking pace for the rest of the race, which is neither realistic nor
+  // fun. These numbers cost a couple of seconds, not a lap.
+  grass: { grip: 0.70, drag: 1.45, rumble: 0.3, name: "Run-off" },
+  gravel: { grip: 0.42, drag: 4.6, rumble: 0.8, name: "Gravel" },
 };
 
 /** Torque curve, normalised 0..1 across the rev range. */
+const REVERSE_MAX = 6;            // m/s, fastest the reverse gear will push
+
 export function torqueFactor(rpm) {
   const x = clamp01((rpm - CAR.idleRpm) / (CAR.maxRpm - CAR.idleRpm));
   // Rises quickly, plateaus, falls away at the top (soft limiter).
@@ -72,15 +78,18 @@ export function stepVehicle(v, dt, env) {
   if (v.controls.brake > 0 && !v.pitStopped) {
     if (vLong > 0.4) {
       braking = -car.brakeForce * v.controls.brake * (v.assists?.abs ? 0.88 : 1);
-    } else if (!v.inPitLane) {
+    } else if (!v.inPitLane && !v.ended && vLong > -REVERSE_MAX) {
+      // Reverse gear. Capped: without a speed limit, holding the brake while
+      // travelling backwards feeds in full reverse thrust and accelerates the
+      // car away down the circuit faster and faster.
       drive = -car.driveForce * 0.24 * v.controls.brake;   // reverse
     }
   }
   if (v.controls.handbrake) braking = -car.brakeForce * 0.5 * sign(vLong);
 
   const drag = car.dragArea * vLong * absLong * surface.drag * (v.towFactor ?? 1);
-  const rolling = car.rollingResist * vLong * (v.surface === "asphalt" ? 1 : 6);
-  const offTrack = v.surface === "asphalt" ? 0 : 0.9 * vLong * absLong;
+  const rolling = car.rollingResist * vLong * (v.surface === "asphalt" ? 1 : 4);
+  const offTrack = v.surface === "asphalt" ? 0 : 0.3 * vLong * absLong;
 
   const aLong = (drive + braking - drag - rolling - offTrack) / mass;
   vLong += aLong * dt;
@@ -130,9 +139,15 @@ export function updateGearbox(v, dt) {
   if (v.shiftTimer > 0) v.shiftTimer -= dt;
 
   // Simple automatic gearbox: shift up near the limiter, down when rpm drops.
+  // The decision is made on *speed* against the current gear's span rather than
+  // on rpm. The rpm model below pins rpm at exactly `shiftUpRpm` at the top of
+  // a gear, so a strict `rpm > shiftUpRpm` test could never fire and every car
+  // stayed in first gear for the whole race on soft-limiter torque.
   const gearSpan = 1 / ratios.length;
+  const g = v.gear - 1;
+  const vTop = topSpeed * ((g + 1) / ratios.length);
   let targetGear = v.gear;
-  if (v.rpm > CAR.shiftUpRpm && v.gear < ratios.length) targetGear = v.gear + 1;
+  if (v.speed >= vTop && v.gear < ratios.length) targetGear = v.gear + 1;
   else if (v.rpm < CAR.shiftDownRpm && v.gear > 1) targetGear = v.gear - 1;
 
   if (targetGear !== v.gear && v.shiftTimer <= 0) {
@@ -144,7 +159,6 @@ export function updateGearbox(v, dt) {
   }
 
   // Map speed onto the gearbox so the needle sweeps per gear.
-  const g = v.gear - 1;
   const span = topSpeed * (g / ratios.length + gearSpan * 0.5) ;
   const vStart = topSpeed * (g / ratios.length);
   const t = clamp01((v.speed - vStart) / Math.max(1, span - vStart));

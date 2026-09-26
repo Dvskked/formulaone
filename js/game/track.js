@@ -321,12 +321,16 @@ export class Track {
     const centreIndex = bestStart + Math.floor(bestLen / 2);
     const entryS = ((bestStart * SPACING) - 40 + this.length) % this.length;
     const exitS = (((bestStart + bestLen) * SPACING) + 60) % this.length;
+    const boxS = (centreIndex * SPACING) % this.length;
     this.pit = {
       entryS,
       exitS,
-      wallS0: (entryS + 78) % this.length,
-      wallS1: (exitS - 78 + this.length) % this.length,
-      boxS: (centreIndex * SPACING) % this.length,
+      // The wall only needs to protect the garages themselves. Running it all
+      // the way back to the entry left cars stranded in the dead zone between
+      // the track edge and the lane, unable to cross over before the barrier.
+      wallS0: (boxS - 45 + this.length) % this.length,
+      wallS1: (boxS + 50 + this.length) % this.length,
+      boxS,
       offset: PIT_LANE_OFFSET,
       width: PIT_LANE_WIDTH,
       speedLimit: 22,          // m/s (80 km/h)

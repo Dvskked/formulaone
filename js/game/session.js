@@ -20,6 +20,7 @@ export const FIXED_DT = 1 / 120;
 const MAX_STEPS = 18;
 const CAR_RADIUS = 2.6;
 const RUNOFF = 12;
+const CONTACT_COOLDOWN = 1.1;   // seconds between scoreable impacts
 
 export const SESSION_STATE = {
   FORMATION: "formation",
@@ -133,9 +134,16 @@ export class Session {
 
       this._stepCars(dt, playerInput, false);
       this._updateTows();
+      this._tickContactCooldowns(dt);
       this._resolveCollisions();
     this._updatePositions();
     this._checkEndConditions();
+  }
+
+  _tickContactCooldowns(dt) {
+    for (const v of this.cars) {
+      if (v.contactCooldown > 0) v.contactCooldown = Math.max(0, v.contactCooldown - dt);
+    }
   }
 
   _goGreen() {
@@ -208,8 +216,11 @@ export class Session {
         v.vy -= ny * vn * 1.4;
       }
       v.vx *= 0.86; v.vy *= 0.86;
-      if (impact > 8) {
-        v.damage = clamp01(v.damage + Math.min(0.12, impact * 0.0035));
+      // Damage is charged once per *excursion*, not once per physics step.
+      // Scraping a wall for half a second must not cost sixty hits.
+      if (impact > 7 && v.contactCooldown <= 0) {
+        v.contactCooldown = CONTACT_COOLDOWN;
+        v.damage = clamp01(v.damage + Math.min(0.09, (impact - 7) * 0.003));
         v.impactFlash = 1;
         v.lastImpact = impact;
         this.pushMessage(`${v.driver.short} hits the barrier`, "bad", v);
@@ -298,13 +309,17 @@ export class Session {
         A.vx -= (j * nx) / mA; A.vy -= (j * ny) / mA;
         B.vx += (j * nx) / mB; B.vy += (j * ny) / mB;
 
+        // As with the barriers, only score a real impact on the first step of
+        // a contact. Wheel-to-wheel rubbing is resolved every step but must
+        // only ever cost the car a token amount of damage — twenty-two cars
+        // racing side by side is normal, not a crash.
         const severity = Math.abs(vn);
-        if (severity > 5) {
-          // F1 cars survive a lot of contact: keep it frequent but cheap.
-          const dmg = Math.min(0.05, severity * 0.0012);
+        if (severity > 5 && A.contactCooldown <= 0) {
+          A.contactCooldown = B.contactCooldown = CONTACT_COOLDOWN;
+          const dmg = Math.min(0.035, (severity - 5) * 0.0012);
           A.damage = clamp01(A.damage + dmg);
           B.damage = clamp01(B.damage + dmg);
-          A.impactFlash = B.impactFlash = clamp01(severity / 12);
+          A.impactFlash = B.impactFlash = clamp01(severity / 14);
           A.lastImpact = B.lastImpact = severity;
           this._onContact(A, B, severity);
         }
@@ -444,9 +459,9 @@ export class Session {
     return this.state === SESSION_STATE.GREEN || this.state === SESSION_STATE.COUNTDOWN;
   }
 
-  /** How many laps the leader has completed. */
+  /** How many laps the leader has completed since the start line. */
   get raceLap() {
-    return Math.max(0, ...this.cars.map((c) => c.lapsDone));
+    return Math.max(0, ...this.cars.map((c) => c.raceLaps));
   }
 
   gridOrder() {

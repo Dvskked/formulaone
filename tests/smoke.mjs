@@ -128,8 +128,14 @@ ok(results.rows.every((r, i) => r.pos === i + 1), "positions are contiguous");
 ok(results.rows[0].classified, "winner classified", `${results.rows[0].driver.short} for ${results.rows[0].team.short}`);
 const dnfs = results.rows.filter((r) => r.dnf).length;
 ok(dnfs <= 5, "retirement rate is plausible", `${dnfs} DNF(s)`);
-const pitStops = results.rows.map((r) => r.pitStops);
-ok(pitStops.every((n) => n >= 1), "every classified car made a mandatory stop", `stops ${Math.min(...pitStops)}-${Math.max(...pitStops)}`);
+// The mandatory one-stop rule applies to cars that actually ran the distance.
+// A car that retired on lap 1 never reached its pit window, so requiring a stop
+// from it tests nothing about the rule.
+const finishers = results.rows.filter((r) => !r.dnf && r.laps >= engine.totalLaps);
+const pitStops = finishers.map((r) => r.pitStops);
+ok(finishers.length > 0 && pitStops.every((n) => n >= 1),
+  "every car that ran the distance made a mandatory stop",
+  `${finishers.length} finishers, stops ${Math.min(...pitStops)}-${Math.max(...pitStops)}`);
 // The winner may also have set the fastest lap, so check the scale per row.
 const SCALE = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 const pointsOk = results.rows.slice(0, 10).every((r, i) => {

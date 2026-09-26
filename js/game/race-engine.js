@@ -8,12 +8,13 @@
 
 import { Session, SESSION_STATE } from "./session.js";
 import { RACE_POINTS, FASTEST_LAP_POINT } from "../data/circuits-data.js";
-import { COMPOUNDS, pitStopTime, raceFuelLoad, planStrategy, tyreLifeEstimate } from "./tires.js";
+import { COMPOUNDS, pitStopTime, raceFuelLoad, planStrategy, tyreLifeEstimate, makeTyre } from "./tires.js";
 
 export const FLAG = { GREEN: "green", YELLOW: "yellow", CHEQUERED: "chequered" };
 
-const PIT_BOX_RADIUS = 24;      // metres either side of the box
-const CHEQUERED_GRACE = 80;     // seconds for backmarkers after the flag
+const PIT_BOX_RADIUS = 10;      // metres either side of the box
+const PIT_LANE_TIMEOUT = 16;   // seconds of crawling before a car rejoins
+const CHEQUERED_GRACE = 25;     // seconds given to cars about to take the flag
 
 export class RaceEngine extends Session {
   constructor(opts) {
@@ -75,13 +76,22 @@ export class RaceEngine extends Session {
       const pref = tm > 0.92 ? "oneStop" : aggr > 0.9 ? "aggressive" : "balanced";
       v.stintPlan = planStrategy(this.track, this.totalLaps, pref);
       v.stintCursor = 0;
+      // The car must start on the compound its own plan opens with, otherwise
+      // it burns the softs off the grid and then pits back onto the same
+      // rubber — which costs a stop and wrecks the whole field's spread.
+      const opener = v.stintPlan[0].compound;
+      if (v.tire.compound !== opener) {
+        v.tire = makeTyre(opener, this.track, 0);
+        v.startCompound = opener;
+      }
       // Stagger the stops across the field so the whole grid does not arrive
-      // in the pit lane on the same lap.
-      const stagger = (v.gridSlot % 4) * 0.25;
-      v.pitLapTarget = v.stintPlan[0].laps + stagger;
+      // in the pit lane on the same lap. Cars sharing a plan otherwise all
+      // come in together, and a lane that can only service one car at a time
+      // deadlocks with a queue that never clears.
+      const stagger = this.rng.next() * 1.7 - 0.35;
+      v.pitLapTarget = Math.max(1, v.stintPlan[0].laps + stagger);
     }
   }
-
   /* ------------------------------------------------------------------ */
   /* Lifecycle                                                           */
   /* ------------------------------------------------------------------ */
@@ -140,6 +150,10 @@ export class RaceEngine extends Session {
       v.controls.throttle = 0;
       if (v.pit.timer <= 0) {
         v.endPitStop();
+        // Advance the plan only once the stop is actually done. Doing it when
+        // the stop was *requested* meant a missed box left the car one stint
+        // short of its mandatory stop with no way to ask again.
+        this._advanceStintPlan(v);
         this.pushMessage(`${v.driver.short} rejoins on ${COMPOUNDS[v.tire.compound].short}`, "info", v);
       }
       return;
@@ -147,60 +161,91 @@ export class RaceEngine extends Session {
 
     if (!v.pit.requested || v.retired || v.finished) return;
 
-    if (Math.abs(toBox) < PIT_BOX_RADIUS && v.inPitLane && v.speed < 7) {
+    // A wide capture window lets three or four cars satisfy "I am at the box"
+    // at once and stop on top of each other, which deadlocks the lane. Keep it
+    // tight so one car is serviced at a time, and let the rest queue.
+    if (Math.abs(toBox) < PIT_BOX_RADIUS && v.inPitLane && v.speed < 5) {
       const compound = v.pit.targetCompound || v.tire.compound;
       const t = pitStopTime(v.spec, v.team.stats, compound);
-      const remaining = Math.max(2, this.totalLaps - v.lapsDone);
+      const remaining = Math.max(2, this.totalLaps - v.raceLaps);
       const fuel = v.pit.refuelling != null ? v.pit.refuelling : raceFuelLoad(remaining) + 1.2;
       v.startPitStop(t.stationary, compound, Math.min(v.fuelCapacity, fuel));
       this.pushMessage(`${v.driver.short} pits — ${t.stationary.toFixed(1)}s stop`, "info", v);
       if (v.isPlayer) this.onPlayerPit?.(v, t);
       return;
     }
-    // Overshot the box by a car length or more: cancel so the car can rejoin.
+    // Overshot the box by a car length or more. The request is dropped so the
+    // car can rejoin, but `pitRetryAt` lets the AI ask again on the next lap -
+    // the mandatory-stop rule cannot be satisfied by a missed entry.
     if (toBox < -14 && toBox > -110) {
       v.cancelPit();
-      if (v.isPlayer) this.pushMessage("Pit entry missed — request cancelled", "bad", v);
+      v.pitRetryAt = this.raceTime + 6;
+      if (v.isPlayer) this.pushMessage("Pit entry missed - request cancelled", "bad", v);
+    }
+
+    // Crawling down a congested lane. Rather than sit there for the rest of
+    // the race, abandon the stop and rejoin, then try again next lap. The
+    // mandatory-stop rule is still satisfied because _aiStrategy will re-request.
+    if (v.speed < 2) v.pitLaneStuck = (v.pitLaneStuck ?? 0) + dt;
+    else v.pitLaneStuck = 0;
+    if (v.pitLaneStuck > PIT_LANE_TIMEOUT) {
+      v.pitLaneStuck = 0;
+      v.cancelPit();
+      v.pitRetryAt = this.raceTime + 8;
+      // Tell the driver to merge out rather than crawl on to an empty box.
+      v.pit.rejoin = true;
     }
   }
 
   /** AI decide when to come in. Evaluated a few times a second. */
   _aiStrategy(v) {
     if (v.retired || v.finished || v.pit.requested || v.pit.stopped) return;
-    const lapsDone = v.lapsDone;
+    if (v.pitRetryAt != null && this.raceTime < v.pitRetryAt) return;
+    const lapsDone = v.raceLaps;
     const life = tyreLifeEstimate(v.tire.compound, this.track);
-    const urgent = v.tire.wear > 0.84 || v.tire.laps >= life - 0.5;
+    const urgent = v.tire.wear > 0.86 || v.tire.laps >= life - 0.5;
     const maxStops = v.stintPlan.length;
     if (v.pitStops >= maxStops && !urgent) return;
     const target = v.pitLapTarget ?? 99;
     const scheduled = lapsDone >= target;
     if (!urgent && !scheduled) return;
-    if (this.totalLaps - lapsDone <= 1 && !urgent) return;
-    if (v.strategyDoneFor === target) return;      // already actioned this stint
-    v.strategyDoneFor = target;
-
-    v.stintCursor = Math.min((v.stintCursor ?? 0) + 1, v.stintPlan.length - 1);
-    const next = v.stintPlan[v.stintCursor];
-    v.pitLapTarget = lapsDone + (next?.laps ?? 3);
+    // A stop is mandatory. Only refuse once there is literally nothing left to
+    // race — otherwise a long opening stint would let a car skip the pits
+    // altogether and the mandatory-stop rule stops meaning anything.
+    if (this.totalLaps - lapsDone <= 0 && !urgent) return;
 
     const remaining = this.totalLaps - lapsDone;
-    const compound = urgent && !next ? v.tire.compound : next.compound;
+    const next = v.stintPlan[Math.min((v.stintCursor ?? 0) + 1, v.stintPlan.length - 1)];
+    const compound = urgent && !next ? v.tire.compound : (next?.compound ?? v.tire.compound);
     v.requestPit(compound, Math.min(v.fuelCapacity, raceFuelLoad(remaining) + 1.2));
+  }
+
+  /** Move a car onto the next stint of its plan after a completed stop. */
+  _advanceStintPlan(v) {
+    v.stintCursor = Math.min((v.stintCursor ?? 0) + 1, Math.max(0, v.stintPlan.length - 1));
+    const next = v.stintPlan[v.stintCursor];
+    v.pitLapTarget = v.raceLaps + (next?.laps ?? 3);
   }
 
   /* --------------------------- retirements ---------------------------- */
 
   _mechanical(v, dt) {
     if (v.retired || v.finished) return;
-    const perSecond = (1 - v.spec.reliability) * 0.0021 + v.damage * 0.014;
+    // Base failure rate from the car's reliability, plus a strongly
+    // super-linear penalty for accumulated damage. Quadratic (not linear)
+    // because light contact is survivable and terminal damage is not.
+    const wear = v.damage * v.damage * v.damage;
+    const perSecond = (1 - v.spec.reliability) * 0.0007 + wear * 0.05
+      + (v.damage > 0.88 ? 0.02 : 0);
     if (this.rng.next() < perSecond * dt) {
-      this.retire(v, v.damage > 0.5 ? "Terminal damage" : "Mechanical failure");
+      this.retire(v, v.damage > 0.55 ? "Terminal damage" : "Mechanical failure");
     }
   }
 
   retire(v, reason) {
     if (v.retired) return;
     v.retired = true;
+    v.ended = true;
     v.retireReason = reason;
     v.vx = 0; v.vy = 0; v.speed = 0; v.gear = 1;
     // Park the wreck in the gravel beyond the barrier. It keeps its odometer
@@ -267,10 +312,14 @@ export class RaceEngine extends Session {
   _checkEndConditions() {
     if (this.state !== SESSION_STATE.GREEN) return;
     // Safety net: if the leader retires, promote the next highest lap counter.
-    const leader = this.cars.reduce((a, b) => (b.lapsDone > a.lapsDone ? b : a), this.cars[0]);
-    if (!this.chequered && leader.lapsDone >= this.totalLaps) {
+    const leader = this.cars.reduce((a, b) => (b.raceLaps > a.raceLaps ? b : a), this.cars[0]);
+    if (!this.chequered && leader.raceLaps >= this.totalLaps) {
       this.chequered = true;
       this.chequeredAt = this.raceTime;
+      this.leaderFinish = leader.finishTime = this.raceTime;
+      leader.finished = true;
+      leader.ended = true;
+      leader.classified = true;
       this.flag = FLAG.CHEQUERED;
       this.pushMessage("Chequered flag!", "good");
     }
@@ -282,16 +331,33 @@ export class RaceEngine extends Session {
 
     for (const v of this.cars) {
       if (v.finished || v.retired) continue;
-      if (v.lapsDone >= this.totalLaps) {
+      if (v.raceLaps >= this.totalLaps) {
         v.finishTime = this.raceTime;
         v.finished = true;
+        v.ended = true;
         v.classified = true;
         this.onFinish?.(v, v.finishTime);
       } else if (this.raceTime - this.chequeredAt > CHEQUERED_GRACE) {
-        this.retire(v, "Lapped");
+        // The flag is out and the grace window has closed. In real life these
+        // cars are classified, not retired: they take the flag where they
+        // stand. Extrapolate a finishing time from their remaining distance
+        // so the classification still orders correctly.
+        this.classifyStraggler(v);
       }
     }
     if (this.cars.every((v) => v.finished || v.retired)) this.buildResults();
+  }
+
+  /** Take the flag where the car stands. Never a DNF, always classified. */
+  classifyStraggler(v) {
+    const speed = Math.max(12, v.speed);
+    const lapsDown = this.totalLaps - v.raceLaps;
+    v.finishTime = this.chequeredAt + v.distanceToLine / speed + lapsDown * 45;
+    v.finished = true;
+    v.ended = true;
+    v.classified = true;
+    v.lapped = lapsDown;
+    this.onFinish?.(v, v.finishTime);
   }
 
   buildResults() {
@@ -313,7 +379,8 @@ export class RaceEngine extends Session {
         pos, driver: v.driver, team: v.team, isPlayer: v.isPlayer,
         driverId: v.driver.id, teamId: v.team.id,
         classified: v.classified, dnf: v.retired, dnfReason: v.retireReason,
-        laps: Math.min(v.lapsDone, this.totalLaps),
+        laps: Math.min(v.raceLaps, this.totalLaps),
+        lapped: v.lapped || 0,
         time: v.finishTime, bestLap: v.bestLapTime,
         pitStops: v.pitStops,
         stints: v.stints.concat([{ compound: v.tire.compound, laps: v.tire.laps }]),
@@ -369,14 +436,14 @@ export class RaceEngine extends Session {
     if (!p) return 0;
     if (p.pitDone || p.pit.requested) return 0;
     if (p.tire.wear > 0.78 || p.fuel < 0.8) return 2;
-    if (p.tire.wear > 0.55 || p.lapsDone >= 1) return 1;
+    if (p.tire.wear > 0.55 || p.raceLaps >= 1) return 1;
     return 0;
   }
 
   suggestStrategy(preference = "balanced") {
     const p = this.player;
     if (!p) return [];
-    const remaining = Math.max(2, this.totalLaps - p.lapsDone);
+    const remaining = Math.max(2, this.totalLaps - p.raceLaps);
     return planStrategy(this.track, remaining, preference);
   }
 
@@ -384,7 +451,7 @@ export class RaceEngine extends Session {
     const p = this.player;
     return {
       state: this.state, flag: this.flag,
-      lap: p ? Math.min(p.lapsDone + 1, this.totalLaps) : 1,
+      lap: p ? Math.min(p.raceLaps + 1, this.totalLaps) : 1,
       totalLaps: this.totalLaps,
       position: p?.position ?? 1,
       cars: this.cars, player: p,

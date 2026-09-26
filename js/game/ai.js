@@ -10,7 +10,7 @@ import { clamp, clamp01, lerp, wrapPi, angleDelta, sign } from "../core/utils.js
 import { tyreGrip } from "./tires.js";
 import { driverRating } from "../data/teams-data.js";
 
-const CORNER_MARGIN = 0.94;      // fraction of the grip ceiling an AI aims for
+const CORNER_MARGIN = 0.88;      // fraction of the grip ceiling an AI aims for
 const BRAKE_ACCEL = 21;          // m/s^2 assumed for planning
 const CAR_WIDTH = 2.2;
 
@@ -55,7 +55,9 @@ export class AIController {
     this.time += dt;
     const v = this.v, track = this.track;
     if (v.retired || v.finished) {
-      v.desiredControls = { throttle: 0, brake: v.retired ? 1 : 0.4, steer: 0, handbrake: false };
+      // Out of the race: ease off to a stop. Do not brake to a standstill and
+      // then let the reverse gear drag the car back down the track.
+      v.desiredControls = { throttle: 0, brake: v.retired ? 1 : 0.22, steer: 0, handbrake: false };
       return;
     }
 
@@ -63,6 +65,24 @@ export class AIController {
     const tyreFactor = tyreGrip(v.tire);
     const carLat = v.spec.latAccel * tyreFactor * (1 - v.damage * 0.1);
     const margin = CORNER_MARGIN * lerp(0.9, 1.0, this.quality) * lerp(0.94, 1.0, this.profile.consistency);
+
+    // ---- wrong-way recovery ----------------------------------------------
+    // A car that has spun is pointing back down the circuit. Left to the normal
+    // pure-pursuit controller it will drive the whole race the wrong way round.
+    // Drive *forward* along the nose (throttle, not the brake pedal) while
+    // steering the nose back down the track: the brake pedal engages reverse,
+    // which from a backwards-facing car just speeds it further up the circuit.
+    const off = angleDelta(track.heading[v.trackIndex], v.heading);
+    if (Math.abs(off) > Math.PI * 0.55 && !v.inPitLane && !v.ended) {
+      this.stuck = 0;
+      v.desiredControls = {
+        throttle: 0.5,
+        brake: 0,
+        steer: clamp(-off * 1.6, -1, 1),
+        handbrake: false,
+      };
+      return;
+    }
 
     // ---- occasional human error -----------------------------------------
     this.mistakeTimer -= dt;
@@ -86,18 +106,26 @@ export class AIController {
     // up on one line when everyone comes in together.
     const laneSlot = (((v.gridSlot ?? 0) % 4) - 1.5) * 1.5;
     const laneLat = track.pitLaneLateral(v.s, v.gridSlot ?? 0);
+    // Once clear of the lane the "give up and merge out" instruction is spent.
+    if (!v.inPitLane) v.pit.rejoin = false;
     if (v.inPitLane) {
       // Already in the lane: stay until past the exit transition, then merge.
-      if (pitting || track.signedDelta(v.s, pit.wallS1) > -25) this.targetLateral = laneLat;
+      // `pit.rejoin` means the car gave up on this stop and must get out.
+      const hold = pitting || (track.signedDelta(v.s, pit.wallS1) > -25 && !v.pit.rejoin);
+      if (hold) this.targetLateral = laneLat;
       else this.targetLateral = laneLat - (laneLat - track.rlLateral[track.indexAt(v.s + 20)]) * 0.75;
     } else if (pitting) {
+      const toEntry = track.delta(v.s, pit.entryS);
       if (track.inPitWindow(v.s)) {
         this.targetLateral = laneLat;
-      } else {
-        // Line up on the right-hand edge so the entry crossing is clean.
-        const toEntry = track.delta(v.s, pit.entryS);
+      } else if (toEntry < 330) {
+        // Line up on the right-hand edge so the entry crossing is clean. Start
+        // early: the car has to shed speed *and* move ~8m sideways before it
+        // reaches the lane, and doing both at the end does not work.
         const i = track.indexAt(v.s + 20);
-        this.targetLateral = toEntry < 190 ? track.halfWidth[i] - 2.4 : 0;
+        this.targetLateral = track.halfWidth[i] - 2.4;
+      } else {
+        this.targetLateral = 0;
       }
     } else {
       const lookIdx = track.indexAt(v.s + Math.max(14, speed * 0.5));
@@ -106,6 +134,21 @@ export class AIController {
       if (traffic.defend) lat += traffic.defendOffset;
       const limit = track.halfWidth[lookIdx] - 1.2;
       this.targetLateral = clamp(lat, -limit, limit);
+    }
+
+    // ---- off-track recovery ----------------------------------------------
+    // A car that has genuinely run wide must forget about racing and simply
+    // get back on the circuit. Left on the normal target it keeps steering
+    // into the barrier and picks up terminal damage. The pit lane and a
+    // committed pit entry are excluded: there the car is meant to be off the
+    // racing surface, and the barrier is a wall it must not be pulled into.
+    const edge = track.halfWidth[v.trackIndex];
+    const offBy = Math.abs(v.lateral) - edge;
+    const offTrack = !v.inPitLane && !(pitting && track.inPitWindow(v.s)) && offBy > 1.4;
+    if (offTrack) {
+      const inLimit = Math.max(0.6, edge - 1.4);
+      this.targetLateral = clamp(this.targetLateral * 0.25, -inLimit, inLimit);
+      this.laneShift *= 0.2;
     }
 
     // ---- steering (pure pursuit) ------------------------------------------
@@ -138,10 +181,24 @@ export class AIController {
     }
     // Damage and rough surfaces slow the whole car down.
     vTarget *= 1 - v.damage * 0.16;
-    if (v.surface === "grass") vTarget = Math.min(vTarget, 22);
+    if (v.surface === "grass") vTarget = Math.min(vTarget, 34);
     if (v.surface === "kerb") vTarget *= 0.96;
     if (v.inPitLane) vTarget = Math.min(vTarget, track.pit.speedLimit * 0.92);
-    if (pitting && v.inPitLane && track.delta(v.s, track.pit.boxS) < 55) vTarget = 1.2;
+    if (pitting) {
+      // Pit entry has to be taken at pit-lane speed. Arriving at racing speed
+      // makes the lateral move into the lane impossible.
+      const toEntry = track.delta(v.s, track.pit.entryS);
+      const ahead = toEntry < 400 ? 1 : 0;
+      if (ahead || track.inPitWindow(v.s)) vTarget = Math.min(vTarget, track.pit.speedLimit * 0.95);
+    }
+    const toBoxNow = track.signedDelta(v.s, track.pit.boxS);
+    if (pitting && v.inPitLane && Math.abs(toBoxNow) < 14) vTarget = 1.2;
+    else if (pitting && v.inPitLane) {
+      // Queuing for the box. Keep rolling at pit-lane speed instead of
+      // crawling, otherwise a queue of cars behind one being serviced never
+      // moves and the whole lane gridlocks.
+      vTarget = Math.min(vTarget, 9);
+    }
     if (this.mistake < -0.4) vTarget *= 0.94;
     vTarget *= lerp(0.995, 1.005, this.profile.consistency);
 
@@ -161,11 +218,11 @@ export class AIController {
     if (v.fuel <= 0.2) throttle *= 0.35;
 
     // ---- recovery ---------------------------------------------------------
-    if (Math.abs(v.lateral) > track.halfWidth[v.trackIndex] + 3) {
-      // Off the racing surface: aim back to the centre and be gentle.
-      const limit = track.halfWidth[v.trackIndex] - 1;
-      this.targetLateral = clamp(this.targetLateral, -limit, limit);
+    if (offTrack) {
+      // Off the racing surface: aim back to the centre and be gentle. Throttle
+      // is limited so the car does not simply understeer into the wall.
       throttle = Math.min(throttle, 0.55);
+      if (offBy > 6) throttle = Math.min(throttle, 0.3);
     }
     if (speed < 1.2 && !v.pitStopped) {
       this.stuck += dt;
