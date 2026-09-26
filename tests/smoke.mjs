@@ -106,7 +106,9 @@ function simulateRace(track, laps, seed, playerId = null) {
     team: row.entry.team, driver: row.entry.driver, spec: row.entry.spec,
     gridPos: i + 1,
   }));
-  const engine = RaceEngine.fromGrid({ track, entries: gridRows, playerId, laps, seed });
+  const engine = RaceEngine.fromGrid({
+    track, entries: gridRows, playerId, laps, seed, autopilot: !!playerId,
+  });
   engine.begin();
   let steps = 0;
   const t0 = performance.now();
@@ -128,9 +130,14 @@ const dnfs = results.rows.filter((r) => r.dnf).length;
 ok(dnfs <= 5, "retirement rate is plausible", `${dnfs} DNF(s)`);
 const pitStops = results.rows.map((r) => r.pitStops);
 ok(pitStops.every((n) => n >= 1), "every classified car made a mandatory stop", `stops ${Math.min(...pitStops)}-${Math.max(...pitStops)}`);
-const points = results.rows.slice(0, 10).map((r) => r.points);
-ok(points[0] === 25 && points[1] === 18 && points[9] === 1, "official points scale",
-  `${points.filter((p) => p).join("/")} (+1 fastest lap)`);
+// The winner may also have set the fastest lap, so check the scale per row.
+const SCALE = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+const pointsOk = results.rows.slice(0, 10).every((r, i) => {
+  const base = SCALE[i] ?? 0;
+  return r.points === base + (r.fastestLap ? 1 : 0) - (r.dnf ? SCALE[i] ?? 0 : 0);
+});
+ok(pointsOk, "official points scale",
+  `${results.rows.slice(0, 10).map((r) => r.points).join("/")} (+1 fastest lap)`);
 ok(results.rows.some((r) => r.bestLap && r.bestLap > 20 && r.bestLap < 140), "best laps recorded",
   `fastest ${formatTime(results.fastestLap.time)} by ${results.fastestLap.vehicle.driver.short}`);
 
