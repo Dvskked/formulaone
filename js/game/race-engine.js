@@ -13,7 +13,7 @@ import { COMPOUNDS, pitStopTime, raceFuelLoad, planStrategy, tyreLifeEstimate } 
 export const FLAG = { GREEN: "green", YELLOW: "yellow", CHEQUERED: "chequered" };
 
 const PIT_BOX_RADIUS = 24;      // metres either side of the box
-const CHEQUERED_GRACE = 22;     // seconds for backmarkers after the flag
+const CHEQUERED_GRACE = 80;     // seconds for backmarkers after the flag
 
 export class RaceEngine extends Session {
   constructor(opts) {
@@ -34,7 +34,7 @@ export class RaceEngine extends Session {
   /* ------------------------------------------------------------------ */
 
   /** Build the race from a qualifying classification. */
-  static fromGrid({ track, entries, playerId, laps, seed, assists }) {
+  static fromGrid({ track, entries, playerId, laps, seed, assists, autopilot = false }) {
     const engine = new RaceEngine({ track, entries, laps, seed, assists });
     const order = entries.slice().sort((a, b) => (a.gridPos ?? 99) - (b.gridPos ?? 99));
     order.forEach((e, i) => {
@@ -42,6 +42,7 @@ export class RaceEngine extends Session {
         team: e.team, driver: e.driver, spec: e.spec,
         isPlayer: e.driver.id === playerId,
         gridSlot: i,
+        autopilot,
         compound: i < 8 ? "soft" : i < 14 ? "medium" : "hard",
       });
     });
@@ -68,13 +69,16 @@ export class RaceEngine extends Session {
 
   assignAIStrategy() {
     for (const v of this.cars) {
-      if (v.isPlayer) continue;
+      if (v.isPlayer && !this.controllers.has(v.id)) continue;
       const tm = v.driver.stats.tyres / 100;
       const aggr = v.driver.stats.aggression / 100;
       const pref = tm > 0.92 ? "oneStop" : aggr > 0.9 ? "aggressive" : "balanced";
       v.stintPlan = planStrategy(this.track, this.totalLaps, pref);
       v.stintCursor = 0;
-      v.pitLapTarget = v.stintPlan[0].laps;
+      // Stagger the stops across the field so the whole grid does not arrive
+      // in the pit lane on the same lap.
+      const stagger = (v.gridSlot % 4) * 0.25;
+      v.pitLapTarget = v.stintPlan[0].laps + stagger;
     }
   }
 
@@ -110,10 +114,16 @@ export class RaceEngine extends Session {
     super._stepCars(dt, playerInput, frozen);
     if (this.state !== SESSION_STATE.GREEN) return;
     for (const v of this.cars) {
+      if (v.parked) continue;
       this._pitLogic(v, dt);
-      this._aiStrategy(v);
       this._mechanical(v, dt);
       this._flagLogic(v, dt);
+    }
+    // Strategy only needs a few decisions a second, not 120.
+    this._strategyClock = (this._strategyClock ?? 0) + dt;
+    if (this._strategyClock >= 0.25) {
+      this._strategyClock = 0;
+      for (const v of this.cars) if (!v.isPlayer || this.controllers.has(v.id)) this._aiStrategy(v);
     }
   }
 
@@ -121,7 +131,8 @@ export class RaceEngine extends Session {
 
   _pitLogic(v, dt) {
     const track = this.track;
-    const boxGap = Math.abs(track.signedDelta(track.pit.boxS, v.s));
+    // Positive = the box is still ahead of the car.
+    const toBox = track.signedDelta(v.s, track.pit.boxS);
 
     if (v.pit.stopped) {
       v.pit.timer -= dt;
@@ -136,7 +147,7 @@ export class RaceEngine extends Session {
 
     if (!v.pit.requested || v.retired || v.finished) return;
 
-    if (boxGap < PIT_BOX_RADIUS && v.inPitLane && v.speed < 7) {
+    if (Math.abs(toBox) < PIT_BOX_RADIUS && v.inPitLane && v.speed < 7) {
       const compound = v.pit.targetCompound || v.tire.compound;
       const t = pitStopTime(v.spec, v.team.stats, compound);
       const remaining = Math.max(2, this.totalLaps - v.lapsDone);
@@ -146,14 +157,14 @@ export class RaceEngine extends Session {
       if (v.isPlayer) this.onPlayerPit?.(v, t);
       return;
     }
-    // Overshot the box: cancel so the car can rejoin.
-    if (boxGap > 110) {
+    // Overshot the box by a car length or more: cancel so the car can rejoin.
+    if (toBox < -14 && toBox > -110) {
       v.cancelPit();
       if (v.isPlayer) this.pushMessage("Pit entry missed — request cancelled", "bad", v);
     }
   }
 
-  /** AI decide when to come in. */
+  /** AI decide when to come in. Evaluated a few times a second. */
   _aiStrategy(v) {
     if (v.retired || v.finished || v.pit.requested || v.pit.stopped) return;
     const lapsDone = v.lapsDone;
@@ -161,13 +172,16 @@ export class RaceEngine extends Session {
     const urgent = v.tire.wear > 0.84 || v.tire.laps >= life - 0.5;
     const maxStops = v.stintPlan.length;
     if (v.pitStops >= maxStops && !urgent) return;
-    const scheduled = lapsDone >= (v.pitLapTarget ?? 99);
+    const target = v.pitLapTarget ?? 99;
+    const scheduled = lapsDone >= target;
     if (!urgent && !scheduled) return;
     if (this.totalLaps - lapsDone <= 1 && !urgent) return;
+    if (v.strategyDoneFor === target) return;      // already actioned this stint
+    v.strategyDoneFor = target;
 
     v.stintCursor = Math.min((v.stintCursor ?? 0) + 1, v.stintPlan.length - 1);
     const next = v.stintPlan[v.stintCursor];
-    v.pitLapTarget = (v.pitLapTarget ?? 0) + (next?.laps ?? 3);
+    v.pitLapTarget = lapsDone + (next?.laps ?? 3);
 
     const remaining = this.totalLaps - lapsDone;
     const compound = urgent && !next ? v.tire.compound : next.compound;
@@ -178,7 +192,7 @@ export class RaceEngine extends Session {
 
   _mechanical(v, dt) {
     if (v.retired || v.finished) return;
-    const perSecond = (1 - v.spec.reliability) * 0.0042 + v.damage * 0.016;
+    const perSecond = (1 - v.spec.reliability) * 0.0021 + v.damage * 0.014;
     if (this.rng.next() < perSecond * dt) {
       this.retire(v, v.damage > 0.5 ? "Terminal damage" : "Mechanical failure");
     }
@@ -188,7 +202,16 @@ export class RaceEngine extends Session {
     if (v.retired) return;
     v.retired = true;
     v.retireReason = reason;
-    v.vx = 0; v.vy = 0; v.speed = 0;
+    v.vx = 0; v.vy = 0; v.speed = 0; v.gear = 1;
+    // Park the wreck in the gravel beyond the barrier. It keeps its odometer
+    // (so it stays classified where it stopped) but is out of everyone's way.
+    const i = v.trackIndex;
+    v.lateral = (v.lateral < 0 ? -1 : 1) * (this.track.halfWidth[i] + 16);
+    const pt = this.track.pointAt(v.s, v.lateral);
+    v.x = pt.x; v.y = pt.y;
+    v.heading = this.track.heading[i];
+    v.parked = true;
+    v.parkedAt = this.raceTime;
     this.pushMessage(`${v.driver.short} retires — ${reason}`, "bad", v);
     this.onRetire?.(v, reason);
   }
@@ -196,11 +219,12 @@ export class RaceEngine extends Session {
   /* ------------------------------ flags ------------------------------- */
 
   _flagLogic(v, dt) {
-    if (v.retired || v.finished) return;
+    if (v.retired || v.finished || v.pit.stopped) return;
+    this._flagHold = Math.max(0, (this._flagHold || 0) - dt);
     if (v.speed < 1.6) {
       const t = (this._yellowCars.get(v.id) || 0) + dt;
       this._yellowCars.set(v.id, t);
-      if (t > 1.4 && this.flag === FLAG.GREEN && !v.pit.stopped) {
+      if (t > 1.6 && this.flag === FLAG.GREEN && this._flagHold <= 0) {
         this.flag = FLAG.YELLOW;
         this.pushMessage("YELLOW FLAG — incident on track", "warn");
       }
@@ -209,6 +233,7 @@ export class RaceEngine extends Session {
     }
     if (this.flag === FLAG.YELLOW && this._yellowCars.size === 0) {
       this.flag = FLAG.GREEN;
+      this._flagHold = 8;
       this.pushMessage("Track clear — green flag", "good");
     }
   }

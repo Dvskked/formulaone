@@ -130,25 +130,15 @@ export class Vehicle {
 
   /* ------------------------------ updates ------------------------------ */
 
-  /** Re-project onto the track and keep the odometer continuous. */
+  /** Re-project onto the track to get the lateral offset and surface index. */
   syncTrack(track) {
     const p = track.project(this.x, this.y, this.trackIndex);
-    const L = track.length;
-    if (p.dist2 > 260 * 260) {
-      // Far from the racing surface: fall back to a global search and
-      // re-anchor the odometer to the closest point.
+    if (p.dist2 > 45 * 45) {
+      // Genuinely off the circuit: re-anchor the odometer to the closest point.
       const g = track.project(this.x, this.y, -1);
-      this.odo = Math.floor(this.odo / L) * L + g.s;
-      this.s = g.s;
-      this.trackIndex = g.index;
-      this.lateral = g.lateral;
-      return;
+      this.odo = Math.floor(this.odo / track.length) * track.length + g.s;
     }
-    const d = p.s - this.s;
-    if (d < -L / 2) this.odo += L;
-    else if (d > L / 2) this.odo -= L;
-    this.odo += d;                 // continuous odometer, not just per-lap jumps
-    this.s = p.s;
+    this.s = track.wrapS(this.odo);
     this.trackIndex = p.index;
     this.lateral = p.lateral;
   }
@@ -170,6 +160,11 @@ export class Vehicle {
 
     stepVehicle(this, dt, { track });
     updateGearbox(this, dt);
+
+    // Odometer: integrate the velocity along the track tangent. Doing it from
+    // the projection instead loses metres in the corners and hairpins.
+    const i = this.trackIndex;
+    this.odo += (this.vx * track.dx[i] + this.vy * track.dy[i]) * dt;
 
     // Fuel burn.
     if (this.fuel > 0 && !this.retired) {

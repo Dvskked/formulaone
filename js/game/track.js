@@ -333,6 +333,12 @@ export class Track {
     };
   }
 
+  /** Centre of a car's assigned slot across the pit lane. */
+  pitLaneLateral(s, slot = 0) {
+    const i = this.indexAt(s);
+    return this.halfWidth[i] + this.pit.offset + ((((slot | 0) % 4) - 1.5) * 1.5);
+  }
+
   /** Is the pit-lane opening reachable at this distance along the lap? */
   inPitWindow(s) {
     const p = this.pit;

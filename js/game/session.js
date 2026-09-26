@@ -14,6 +14,7 @@ import { makeRng } from "../core/rng.js";
 import { Vehicle, bindTrack } from "./vehicle.js";
 import { AIController, makeAIProfile } from "./ai.js";
 import { ageTyre } from "./tires.js";
+import { applySlipstream } from "./physics.js";
 
 export const FIXED_DT = 1 / 120;
 const MAX_STEPS = 18;
@@ -67,7 +68,7 @@ export class Session {
   /* Setup                                                                */
   /* ------------------------------------------------------------------ */
 
-  addEntry({ team, driver, spec, isPlayer = false, gridSlot = 0, compound = "soft", fuel = 0, profile = null }) {
+  addEntry({ team, driver, spec, isPlayer = false, gridSlot = 0, compound = "soft", fuel = 0, profile = null, autopilot = false }) {
     const v = new Vehicle({
       driver, team, spec, isPlayer,
       assists: this.assists,
@@ -78,7 +79,7 @@ export class Session {
     v.gridSlot = gridSlot;
     v._spec = spec;
     this.cars.push(v);
-    if (!isPlayer) {
+    if (!isPlayer || autopilot) {
       const ctrl = new AIController(v, this.track, makeAIProfile(driver, spec, this.rng, profile || {}));
       this.controllers.set(v.id, ctrl);
     }
@@ -130,8 +131,9 @@ export class Session {
       return;
     }
 
-    this._stepCars(dt, playerInput, false);
-    this._resolveCollisions();
+      this._stepCars(dt, playerInput, false);
+      this._updateTows();
+      this._resolveCollisions();
     this._updatePositions();
     this._checkEndConditions();
   }
@@ -145,8 +147,14 @@ export class Session {
   _stepCars(dt, playerInput, frozen) {
     const world = { cars: this.cars, time: this.time, state: this.state };
     for (const v of this.cars) {
+      if (v.parked) continue;
       if (v.isPlayer) {
         if (playerInput) v.desiredControls = { ...playerInput, handbrake: !!playerInput.handbrake };
+        else {
+          // No input: hand the car to its AI brain (autopilot rounds).
+          const auto = this.controllers.get(v.id);
+          if (auto) auto.update(dt, world);
+        }
         if (frozen) v.desiredControls = { throttle: 0, brake: 1, steer: 0, handbrake: true };
       } else {
         const ctrl = this.controllers.get(v.id);
@@ -200,8 +208,8 @@ export class Session {
         v.vy -= ny * vn * 1.4;
       }
       v.vx *= 0.86; v.vy *= 0.86;
-      if (impact > 6) {
-        v.damage = clamp01(v.damage + impact * 0.0055);
+      if (impact > 8) {
+        v.damage = clamp01(v.damage + Math.min(0.12, impact * 0.0035));
         v.impactFlash = 1;
         v.lastImpact = impact;
         this.pushMessage(`${v.driver.short} hits the barrier`, "bad", v);
@@ -239,13 +247,35 @@ export class Session {
   /* Collisions                                                          */
   /* ------------------------------------------------------------------ */
 
+  /** Aerodynamic tow from the car in front. */
+  _updateTows() {
+    const cars = this.cars;
+    const track = this.track;
+    for (const v of cars) {
+      if (v.parked) continue;
+      let tow = 0;
+      for (const o of cars) {
+        if (o === v || o.parked) continue;
+        const gap = track.signedDelta(v.s, o.s);
+        if (gap <= 0 || gap > 70) continue;
+        const dLat = Math.abs(o.lateral - v.lateral);
+        if (dLat > 5) continue;
+        const f = (1 - gap / 70) * (1 - dLat / 5) * clamp01((o.speed - 18) / 30);
+        if (f > tow) tow = f;
+      }
+      applySlipstream(v, tow);
+    }
+  }
+
   _resolveCollisions() {
     const cars = this.cars;
     const minDist = CAR_RADIUS * 2;
     for (let a = 0; a < cars.length; a++) {
       const A = cars[a];
+      if (A.parked) continue;
       for (let b = a + 1; b < cars.length; b++) {
         const B = cars[b];
+        if (B.parked) continue;
         const dx = B.x - A.x, dy = B.y - A.y;
         const d2 = dx * dx + dy * dy;
         if (d2 > minDist * minDist || d2 < 1e-6) continue;
@@ -269,9 +299,11 @@ export class Session {
         B.vx += (j * nx) / mB; B.vy += (j * ny) / mB;
 
         const severity = Math.abs(vn);
-        if (severity > 3) {
-          A.damage = clamp01(A.damage + severity * 0.0022);
-          B.damage = clamp01(B.damage + severity * 0.0022);
+        if (severity > 5) {
+          // F1 cars survive a lot of contact: keep it frequent but cheap.
+          const dmg = Math.min(0.05, severity * 0.0012);
+          A.damage = clamp01(A.damage + dmg);
+          B.damage = clamp01(B.damage + dmg);
           A.impactFlash = B.impactFlash = clamp01(severity / 12);
           A.lastImpact = B.lastImpact = severity;
           this._onContact(A, B, severity);

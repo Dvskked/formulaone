@@ -74,12 +74,18 @@ export class AIController {
 
     // ---- traffic ---------------------------------------------------------
     const traffic = this._scanTraffic(world, dt);
-    this.laneShift = lerp(this.laneShift, traffic.laneShift, 1 - Math.exp(-dt * 2.2));
+    // Patience: the longer we have been stuck behind someone, the less we
+    // care about matching their speed and the harder we commit to a side.
+    this.blocked = traffic.limit != null ? this.blocked + dt : 0;
+    this.laneShift = lerp(this.laneShift, traffic.laneShift, 1 - Math.exp(-dt * (2.6 + this.blocked * 0.4)));
 
     // ---- pit lane target --------------------------------------------------
     const pit = track.pit;
     const pitting = v.pit.requested;
-    const laneLat = track.halfWidth[v.trackIndex] + pit.offset;
+    // Each car gets its own slot across the lane so the field does not pile
+    // up on one line when everyone comes in together.
+    const laneSlot = (((v.gridSlot ?? 0) % 4) - 1.5) * 1.5;
+    const laneLat = track.pitLaneLateral(v.s, v.gridSlot ?? 0);
     if (v.inPitLane) {
       // Already in the lane: stay until past the exit transition, then merge.
       if (pitting || track.signedDelta(v.s, pit.wallS1) > -25) this.targetLateral = laneLat;
@@ -182,6 +188,7 @@ export class AIController {
   /** Look for cars ahead and decide whether to lift, pass or defend. */
   _scanTraffic(world, dt) {
     const v = this.v, track = this.track;
+    const patience = clamp01(this.blocked / 5);
     let limit = null;
     let laneShift = 0;
     let defend = false;
@@ -189,35 +196,39 @@ export class AIController {
     let closestAhead = Infinity;
 
     for (const other of world.cars) {
-      if (other === v || other.retired) continue;
+      if (other === v || other.parked) continue;
       const gap = track.signedDelta(v.s, other.s);
-      if (gap <= 0 || gap > 60) continue;
+      if (gap <= 0 || gap > 45) continue;
       const dLat = other.lateral - v.lateral;
       const lateralGap = Math.abs(dLat) - CAR_WIDTH;
       if (gap < closestAhead) closestAhead = gap;
 
       if (lateralGap < CAR_WIDTH) {
-        // Directly in front. Match speed, then look for a way past.
-        const safe = Math.max(14, other.speed - (36 - gap) * 0.32);
+        // Directly in front. Match its speed with a small time gap, then move
+        // across early enough to actually get past.
+        const safe = Math.max(12, other.speed - Math.max(0, 26 - gap) * 0.22);
         limit = Math.min(limit ?? Infinity, safe);
-        if (gap < 16) {
+        if (gap < 30) {
           const side = dLat > 0 ? -1 : 1;   // pick the side with more room
           const room = this._roomFor(v, side);
-          laneShift += side * lerp(1.2, 4.2, this.profile.aggression) * room;
+          const commit = 1 + patience * 0.8;
+          laneShift += side * lerp(1.6, 4.6, this.profile.aggression) * room * commit;
         }
-      } else if (gap < 26) {
-        // Alongside: an aggressive AI will defend the inside.
+      } else if (gap < 30) {
+        // Alongside: hold your line, and give a little room if they are quicker.
         const behindGap = track.signedDelta(other.s, v.s);
-        if (behindGap < 14 && other.speed > v.speed + 0.5) {
-          defend = true;
+        if (behindGap < 15 && other.speed > v.speed + 0.4) {
+          laneShift -= sign(dLat || 1) * 1.4 * this.profile.aggression;
+        }
+        if (behindGap < 12 && other.speed > v.speed + 0.2) {
           const inside = -sign(track.rlKappa[v.trackIndex] || 1);
-          defendOffset = inside * 2.6 * this.profile.defence;
+          laneShift += inside * 1.8 * this.profile.defence;
         }
       }
     }
 
     // Blown hairpin: back out rather than drive into the back of them.
-    if (closestAhead < 7 && limit == null) limit = 10;
+    if (closestAhead < 8 && limit == null) limit = 12;
 
     return {
       limit,
