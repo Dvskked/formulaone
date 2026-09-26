@@ -1,138 +1,257 @@
-/**
- * storage.js — versioned localStorage persistence with JSON export/import.
- */
+// Persistencia local: ajustes, partidas guardadas (autoguardado) e import/export.
 
-const PREFIX = "apexgp:";
-const SAVE_VERSION = 1;
+const PREFIX = 'f1predestinato';
+export const KEYS = {
+  settings: `${PREFIX}.settings`,
+  slots: `${PREFIX}.slots`,
+  slot: (i) => `${PREFIX}.slot.${i}`,
+  last: `${PREFIX}.last`,
+  seen: `${PREFIX}.seen`,
+  tips: `${PREFIX}.tips`,
+};
 
-function available() {
+export const SLOT_COUNT = 3;
+export const SAVE_VERSION = 2;
+
+function safeLocal() {
   try {
-    const k = PREFIX + "__t";
-    localStorage.setItem(k, "1");
-    localStorage.removeItem(k);
+    const k = '__f1p_probe__';
+    window.localStorage.setItem(k, '1');
+    window.localStorage.removeItem(k);
+    return window.localStorage;
+  } catch {
+    const mem = new Map();
+    return {
+      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => mem.set(k, String(v)),
+      removeItem: (k) => mem.delete(k),
+      isMemory: true,
+    };
+  }
+}
+
+const store = typeof window !== 'undefined' ? safeLocal() : null;
+const memoryFallback = new Map();
+
+function readRaw(key) {
+  if (!store) return memoryFallback.get(key) ?? null;
+  try {
+    return store.getItem(key);
+  } catch {
+    return memoryFallback.get(key) ?? null;
+  }
+}
+
+function writeRaw(key, value) {
+  if (!store) {
+    memoryFallback.set(key, value);
+    return true;
+  }
+  try {
+    store.setItem(key, value);
+    return true;
+  } catch {
+    memoryFallback.set(key, value);
+    return false;
+  }
+}
+
+export function readJson(key, fallback = null) {
+  const raw = readRaw(key);
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function writeJson(key, value) {
+  return writeRaw(key, JSON.stringify(value));
+}
+
+export function removeKey(key) {
+  if (store) {
+    try {
+      store.removeItem(key);
+    } catch {
+      /* ignora */
+    }
+  }
+  memoryFallback.delete(key);
+}
+
+/* ───────────────────────── Ajustes ───────────────────────── */
+
+export const DEFAULT_SETTINGS = {
+  sound: true,
+  sfx: true,
+  engineVolume: 0.75,
+  musicVolume: 0.45,
+  crowdVolume: 0.5,
+  difficulty: 'pro' /* amateur | pro | legendary */,
+  assists: true,
+  steeringAssist: 0.55,
+  tractionControl: true,
+  abs: true,
+  autoDrs: true,
+  brakeAssist: true,
+  stability: 0.6,
+  units: 'metric' /* metric | imperial */,
+  hudScale: 1,
+  simSpeed: 1,
+  showMinimap: true,
+  showTiming: true,
+  reduceMotion: false,
+};
+
+export function loadSettings() {
+  const saved = readJson(KEYS.settings, {});
+  return { ...DEFAULT_SETTINGS, ...(saved && typeof saved === 'object' ? saved : {}) };
+}
+
+export function saveSettings(settings) {
+  return writeJson(KEYS.settings, settings);
+}
+
+/* ─────────────────────── Partidas guardadas ─────────────────────── */
+
+/** @returns {Array<{index:number,empty:boolean,meta:object|null}>} */
+export function listSlots() {
+  const out = [];
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const data = readSlot(i);
+    out.push({ index: i, empty: !data, meta: data ? data.meta || {} : null });
+  }
+  return out;
+}
+
+export function readSlot(index) {
+  const data = readJson(KEYS.slot(index), null);
+  if (!data || data.version !== SAVE_VERSION || !data.state) return null;
+  return data;
+}
+
+export function writeSlot(index, state, meta) {
+  const payload = {
+    version: SAVE_VERSION,
+    savedAt: new Date().toISOString(),
+    meta: meta || state.meta || {},
+    state,
+  };
+  const ok = writeJson(KEYS.slot(index), payload);
+  if (ok) {
+    writeJson(KEYS.last, { index, savedAt: payload.savedAt });
+    return true;
+  }
+  return false;
+}
+
+export function deleteSlot(index) {
+  removeKey(KEYS.slot(index));
+  const last = readJson(KEYS.last, null);
+  if (last && last.index === index) removeKey(KEYS.last);
+  return true;
+}
+
+export function lastSlotIndex() {
+  const last = readJson(KEYS.last, null);
+  if (!last) return null;
+  return readSlot(last.index) ? last.index : null;
+}
+
+export function hasAnySave() {
+  return lastSlotIndex() !== null;
+}
+
+/* ─────────────────────── Importar / exportar ─────────────────────── */
+
+export function exportSlot(index) {
+  const data = readSlot(index);
+  if (!data) return null;
+  return JSON.stringify(data, null, 2);
+}
+
+export function importSlot(json, targetIndex = null) {
+  let parsed;
+  try {
+    parsed = typeof json === 'string' ? JSON.parse(json) : json;
+  } catch {
+    throw new Error('El archivo no es un JSON válido.');
+  }
+  if (!parsed || parsed.version !== SAVE_VERSION || !parsed.state) {
+    throw new Error('El archivo no es una partida de Predestinato.');
+  }
+  let index = targetIndex;
+  if (index === null) {
+    const free = listSlots().find((s) => s.empty);
+    index = free ? free.index : 0;
+  }
+  writeJson(KEYS.slot(index), parsed);
+  writeJson(KEYS.last, { index, savedAt: parsed.savedAt || new Date().toISOString() });
+  return index;
+}
+
+export function downloadText(filename, text) {
+  try {
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
     return true;
   } catch {
     return false;
   }
 }
 
-const HAS_LS = available();
-const memory = new Map();
-
-function readRaw(key) {
-  if (HAS_LS) return localStorage.getItem(PREFIX + key);
-  return memory.has(key) ? memory.get(key) : null;
+export function pickTextFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.addEventListener('change', () => {
+      const file = input.files && input.files[0];
+      if (!file) return resolve(null);
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => resolve(null);
+      reader.readAsText(file);
+    });
+    input.click();
+  });
 }
 
-function writeRaw(key, value) {
-  if (HAS_LS) {
-    try {
-      localStorage.setItem(PREFIX + key, value);
-      return true;
-    } catch {
-      return false;
+/* ─────────────────────── Marcadores de visto ─────────────────────── */
+
+export function seenFlag(key) {
+  const bag = readJson(KEYS.seen, {});
+  return Boolean(bag[key]);
+}
+
+export function markSeen(key) {
+  const bag = readJson(KEYS.seen, {});
+  bag[key] = Date.now();
+  writeJson(KEYS.seen, bag);
+}
+
+export function storageInfo() {
+  const inMemory = !store || store.isMemory === true;
+  let bytes = 0;
+  try {
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      const raw = readRaw(KEYS.slot(i));
+      if (raw) bytes += raw.length;
     }
+    const s = readRaw(KEYS.settings);
+    if (s) bytes += s.length;
+  } catch {
+    /* ignora */
   }
-  memory.set(key, value);
-  return true;
-}
-
-export const storage = {
-  available: HAS_LS,
-
-  get(key, fallback = null) {
-    const raw = readRaw(key);
-    if (raw == null) return fallback;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return fallback;
-    }
-  },
-
-  set(key, value) {
-    return writeRaw(key, JSON.stringify(value));
-  },
-
-  remove(key) {
-    if (HAS_LS) localStorage.removeItem(PREFIX + key);
-    memory.delete(key);
-  },
-
-  keys() {
-    if (!HAS_LS) return [...memory.keys()];
-    const out = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(PREFIX)) out.push(k.slice(PREFIX.length));
-    }
-    return out;
-  },
-
-  /** Read a save bundle, migrating older shapes forward. */
-  loadSave(slot = "career") {
-    const data = this.get(`save:${slot}`);
-    if (!data || typeof data !== "object") return null;
-    if (data.version !== SAVE_VERSION) {
-      if (typeof data.migrate === "function") { try { return data.migrate(); } catch { /* fall through */ } }
-      return null;
-    }
-    return data.payload;
-  },
-
-  writeSave(slot, payload) {
-    return this.set(`save:${slot}`, { version: SAVE_VERSION, savedAt: Date.now(), payload });
-  },
-
-  deleteSave(slot) {
-    this.remove(`save:${slot}`);
-  },
-
-  saveInfo(slot = "career") {
-    const raw = this.get(`save:${slot}`);
-    return raw && raw.savedAt ? new Date(raw.savedAt) : null;
-  },
-
-  exportSave(slot = "career") {
-    const payload = this.loadSave(slot);
-    return payload ? JSON.stringify({ app: "apexgp2026", version: SAVE_VERSION, payload }, null, 2) : null;
-  },
-
-  importSave(json) {
-    const parsed = typeof json === "string" ? JSON.parse(json) : json;
-    const payload = parsed && parsed.payload ? parsed.payload : parsed;
-    if (!payload || typeof payload !== "object") throw new Error("Unrecognised save file");
-    this.writeSave("career", payload);
-    return payload;
-  },
-};
-
-export const SETTINGS_DEFAULTS = {
-  sound: true,
-  masterVolume: 0.7,
-  sfxVolume: 0.8,
-  engineVolume: 0.65,
-  musicVolume: 0.4,
-  quality: "high",        // low | medium | high
-  cameraZoom: 1,          // 0 far, 1 near
-  showRacingLine: false,
-  showMinimap: true,
-  showHudHints: true,
-  assists: { steering: true, traction: true, abs: true, autoPit: false },
-  raceLaps: 6,
-  simSpeed: 1,
-  reducedMotion: false,
-};
-
-export function loadSettings() {
-  const s = storage.get("settings", {});
-  return {
-    ...SETTINGS_DEFAULTS,
-    ...s,
-    assists: { ...SETTINGS_DEFAULTS.assists, ...(s.assists || {}) },
-  };
-}
-
-export function saveSettings(settings) {
-  storage.set("settings", settings);
+  return { inMemory, bytes, kilobytes: Math.round(bytes / 102.4) / 10 };
 }

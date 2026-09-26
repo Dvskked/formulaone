@@ -1,515 +1,605 @@
-﻿/**
- * track.js â€” circuit geometry, spatial projection, racing line and pit lane.
- *
- * World units are metres. The centreline is a closed Catmull-Rom spline
- * resampled at a uniform spacing, which makes `s = index * spacing` and lets
- * every consumer (AI, physics, timing, renderer) share one coordinate system.
- *
- *   tangent  t = (dx, dy)          heading angle = atan2(dy, dx)
- *   right    r = (-dy, dx)         positive lateral = right of the racing direction
+// Construcción de circuitos a partir de un trazado compacto de segmentos.
+// Genera línea central, anchura, pianos, boxes, zonas DRS, sectores y línea de carrera.
+
+import { clamp, dist, TAU, mod } from '../core/util.js';
+
+const STEP = 5; // metros entre muestras brutas
+const RELAX_ITERATIONS = 600;
+const DAMPING = 0.62;
+const MAX_STEP = 26;
+
+/**
+ * DSL de segmentos:
+ *   ['s', largo]                 recta
+ *   ['c', radio, grados]         curva (signo + = derecha)
+ *   ['e', largo, amplitud, n]    esses: n curvas alternas
  */
-
-import { clamp, lerp, TAU, wrapPi } from "../core/utils.js";
-
-const SPACING = 5;          // metres between centreline samples
-const MARGIN = 2.6;         // racing line keeps this much off the white line
-const RUNOFF = 12;          // metres of run-off before the barrier
-const PIT_LANE_OFFSET = 6;  // lane centre, measured from the track edge
-const PIT_LANE_WIDTH = 7;
-const PIT_GAP = 26;         // length of the in/out opening in the pit wall
-
-/** Catmull-Rom interpolation (centripetal, alpha = 0.5). */
-function catmullRom(p0, p1, p2, p3, t) {
-  const t2 = t * t, t3 = t2 * t;
-  return 0.5 * (
-    2 * p1 +
-    (-p0 + p2) * t +
-    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-  );
+function parseSegments(def, radiusFactor = 1) {
+  const segs = [];
+  for (const seg of def.seg) {
+    const kind = seg[0];
+    if (kind === 's') {
+      segs.push({ kind: 's', length: seg[1], base: seg[1], index: 0 });
+    } else if (kind === 'c') {
+      segs.push({ kind: 'c', radius: Math.max(20, seg[1] * radiusFactor), angle: seg[2], esses: false });
+    } else if (kind === 'e') {
+      const [, length, , count] = seg;
+      const steps = Math.max(2, count);
+      const stepLen = length / steps;
+      const angle = (360 / (steps + (steps % 2 === 0 ? 1 : 0))) * 0.6;
+      const radius = Math.max(35, stepLen / Math.tan((angle * Math.PI) / 360));
+      for (let i = 0; i < steps; i++) {
+        segs.push({ kind: 'c', radius, angle: i % 2 === 0 ? angle : -angle, esses: true });
+      }
+    }
+  }
+  /* numerar el índice inicial de cada segmento dentro de la polilínea */
+  let idx = 0;
+  for (const s of segs) {
+    s.index = idx;
+    idx += s.kind === 's' ? Math.max(1, Math.round(s.length / STEP)) : Math.max(2, Math.round(((s.radius * Math.abs(s.angle)) / 180) * Math.PI / STEP));
+  }
+  return segs;
 }
 
-export class Track {
-  /** @param {object} def entry from circuits-data.js */
-  constructor(def) {
-    this.def = def;
-    this.id = def.id;
-    this.name = def.name;
-    this.short = def.short;
-    this.country = def.country;
-    this.flag = def.flag;
-    this.abrasiveness = def.abrasiveness ?? 1;
-    this.grip = def.grip ?? 1;
-    this.temp = def.temp ?? 22;
-    this.rain = def.rain ?? 0;
-    this.sectorBias = def.sectorBias ?? [1 / 3, 1 / 3, 1 / 3];
-
-    this.spacing = SPACING;
-    this._build(def.points, def.length ?? 2900, def.width ?? 13);
-    this._buildRacingLine();
-    this._buildPitLane();
-    this._buildSectors();
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* Construction                                                         */
-  /* ------------------------------------------------------------------ */
-
-  _build(controlPoints, targetLength) {
-    // 1. Sample the closed spline at its natural size, then scale it so the
-    //    finished lap length matches the circuit's published length exactly.
-    const STEPS = 20;
-    const dense = [];
-    const n = controlPoints.length;
-    for (let i = 0; i < n; i++) {
-      const p0 = controlPoints[(i - 1 + n) % n], p1 = controlPoints[i];
-      const p2 = controlPoints[(i + 1) % n], p3 = controlPoints[(i + 2) % n];
-      for (let s = 0; s < STEPS; s++) {
-        const t = s / STEPS;
-        dense.push({
-          x: catmullRom(p0[0], p1[0], p2[0], p3[0], t),
-          y: catmullRom(p0[1], p1[1], p2[1], p3[1], t),
-          w: lerp(p1[2] ?? 13, p2[2] ?? 13, t),
-        });
+function walk(segs) {
+  const pts = [{ x: 0, y: 0 }];
+  let x = 0;
+  let y = 0;
+  let h = 0;
+  for (const seg of segs) {
+    if (seg.kind === 's') {
+      const n = Math.max(1, Math.round(seg.length / STEP));
+      const step = seg.length / n;
+      for (let i = 0; i < n; i++) {
+        x += Math.cos(h) * step;
+        y += Math.sin(h) * step;
+        pts.push({ x, y });
+      }
+    } else {
+      const rad = (Math.abs(seg.angle) * Math.PI) / 180;
+      const n = Math.max(2, Math.round((seg.radius * rad) / STEP));
+      const stepA = rad / n;
+      const stepL = (seg.radius * rad) / n;
+      const dir = seg.angle >= 0 ? 1 : -1;
+      for (let i = 0; i < n; i++) {
+        x += Math.cos(h) * stepL;
+        y += Math.sin(h) * stepL;
+        h += dir * stepA;
+        pts.push({ x, y });
       }
     }
+  }
+  return pts;
+}
 
-    let splineLen = 0;
-    for (let i = 0; i < dense.length; i++) {
-      const a = dense[i], b = dense[(i + 1) % dense.length];
-      splineLen += Math.hypot(b.x - a.x, b.y - a.y);
+/** Normaliza el giro total a 360 grados para que la vuelta sea cerrable. */
+function normaliseTurn(segs) {
+  const corners = segs.filter((s) => s.kind === 'c' && Math.abs(s.angle) > 0.5);
+  if (!corners.length) return;
+  const sum = corners.reduce((a, c) => a + c.angle, 0);
+  const target = (sum >= 0 ? 1 : -1) * 360;
+  if (Math.abs(target - sum) < 2) return;
+  /* el error se reparte de forma proporcional al ángulo de cada curva */
+  const factor = clamp(target / sum, 0.45, 2.2);
+  for (const c of corners) c.angle *= factor;
+}
+
+function closeLoop(segs) {
+  normaliseTurn(segs);
+  const straights = segs.filter((s) => s.kind === 's');
+  let pts = walk(segs);
+  for (let iter = 0; iter < RELAX_ITERATIONS; iter++) {
+    const end = pts[pts.length - 1];
+    const ex = pts[0].x - end.x;
+    const ey = pts[0].y - end.y;
+    const err = Math.hypot(ex, ey);
+    if (err < 0.4) break;
+    let aligned = 0;
+    for (const s of straights) {
+      const a = pts[Math.min(s.index, pts.length - 2)];
+      const b = pts[Math.min(s.index + 1, pts.length - 1)];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const l = Math.hypot(dx, dy) || 1;
+      s.dirX = dx / l;
+      s.dirY = dy / l;
+      aligned += s.dirX * ex + s.dirY * ey;
     }
-    const scale = targetLength / splineLen;
-    for (const p of dense) { p.x *= scale; p.y *= scale; }
-
-    // Centre the finished loop on the world origin.
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const p of dense) {
-      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    if (Math.abs(aligned) < 0.5) break;
+    const factor = (DAMPING * err) / aligned;
+    for (const s of straights) {
+      const proj = s.dirX * ex + s.dirY * ey;
+      s.length = clamp(s.length + clamp(proj * factor, -MAX_STEP, MAX_STEP), s.base * 0.45, s.base * 2.6);
     }
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    for (const p of dense) { p.x -= cx; p.y -= cy; }
+    pts = walk(segs);
+  }
+  return pts;
+}
 
-    // 2. Resample at uniform arc-length spacing.
-    const cum = [0];
-    for (let i = 1; i <= dense.length; i++) {
-      const a = dense[i - 1], b = dense[i % dense.length];
-      cum.push(cum[i - 1] + Math.hypot(b.x - a.x, b.y - a.y));
+/** Rota y escala el trazado para que el lazo cierre exactamente. */
+function fitClosed(pts) {
+  const n = pts.length;
+  const headStart = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+  const last = pts[n - 1];
+  const prev = pts[n - 2];
+  const headEnd = Math.atan2(last.y - prev.y, last.x - prev.x);
+  const delta = mod(headEnd - headStart + Math.PI, TAU) - Math.PI;
+  let cx = 0;
+  let cy = 0;
+  for (const p of pts) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= n;
+  cy /= n;
+  const cosA = Math.cos(-delta);
+  const sinA = Math.sin(-delta);
+  const rotated = pts.map((p) => {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    return { x: cx + dx * cosA - dy * sinA, y: cy + dx * sinA + dy * cosA };
+  });
+  const gap = dist(rotated[0].x, rotated[0].y, rotated[n - 1].x, rotated[n - 1].y);
+  const scale = gap > 0.5 ? clamp(1 - gap / (polyLength(rotated) * 1.6), 0.93, 1) : 1;
+  const out = rotated.map((p) => ({ x: cx + (p.x - cx) * scale, y: cy + (p.y - cy) * scale }));
+  out[n - 1].x = out[0].x;
+  out[n - 1].y = out[0].y;
+  return out;
+}
+
+function polyLength(pts) {
+  let total = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    total += dist(a.x, a.y, b.x, b.y);
+  }
+  return total;
+}
+
+function resample(pts, spacing) {
+  const out = [];
+  const closed = pts.concat([pts[0]]);
+  let carry = 0;
+  for (let i = 0; i < closed.length - 1; i++) {
+    const a = closed[i];
+    const b = closed[i + 1];
+    const d = dist(a.x, a.y, b.x, b.y);
+    if (d < 1e-6) continue;
+    let t = carry;
+    while (t < d) {
+      const f = t / d;
+      out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+      t += spacing;
     }
-    const total = cum[dense.length];
-    const count = Math.max(64, Math.round(total / SPACING));
-    this.length = count * SPACING;
-    this.count = count;
+    carry = t - d;
+  }
+  return out;
+}
 
-    const px = new Float32Array(count), py = new Float32Array(count);
-    const pw = new Float32Array(count);
-    let seg = 0;
-    for (let i = 0; i < count; i++) {
-      const target = (i / count) * total;
-      while (seg < dense.length - 1 && cum[seg + 1] < target) seg++;
-      const t = (target - cum[seg]) / Math.max(1e-6, cum[seg + 1] - cum[seg]);
-      const a = dense[seg], b = dense[(seg + 1) % dense.length];
-      px[i] = lerp(a.x, b.x, t);
-      py[i] = lerp(a.y, b.y, t);
-      pw[i] = lerp(a.w, b.w, t);
+function smoothField(pts, key, radius, passes) {
+  const m = pts.length;
+  for (let pass = 0; pass < passes; pass++) {
+    const src = pts.map((p) => p[key]);
+    for (let i = 0; i < m; i++) {
+      let sum = 0;
+      for (let k = -radius; k <= radius; k++) sum += src[(i + k + m) % m];
+      pts[i][key] = sum / (radius * 2 + 1);
     }
-
-
-    this.px = px; this.py = py; this.pw = pw;
-
-    // 4. Tangents, normals, curvature, half-widths.
-    this.dx = new Float32Array(count);
-    this.dy = new Float32Array(count);
-    this.nx = new Float32Array(count);
-    this.ny = new Float32Array(count);
-    this.kappa = new Float32Array(count);
-    this.halfWidth = new Float32Array(count);
-    this.heading = new Float32Array(count);
-
-    for (let i = 0; i < count; i++) {
-      const a = (i - 1 + count) % count, b = (i + 1) % count;
-      let tx = px[b] - px[a], ty = py[b] - py[a];
-      const len = Math.hypot(tx, ty) || 1;
-      tx /= len; ty /= len;
-      this.dx[i] = tx; this.dy[i] = ty;
-      this.nx[i] = -ty; this.ny[i] = tx;   // right-hand normal
-      this.heading[i] = Math.atan2(ty, tx);
-      this.halfWidth[i] = pw[i] / 2;
-    }
-    for (let i = 0; i < count; i++) {
-      const a = (i - 1 + count) % count, b = (i + 1) % count;
-      const cross = this.dx[a] * this.dy[b] - this.dy[a] * this.dx[b];
-      const dot = clamp(this.dx[a] * this.dx[b] + this.dy[a] * this.dy[b], -1, 1);
-      this.kappa[i] = Math.atan2(cross, dot) / (2 * SPACING);
-    }
-    // Smooth curvature (single pass, wrap-aware).
-    const ks = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      let acc = 0;
-      for (let k = -2; k <= 2; k++) acc += this.kappa[(i + k + count) % count];
-      ks[i] = acc / 5;
-    }
-    this.kappa = ks;
-
-    // 5. Bounds + corner map (used by the minimap and the corner HUD).
-    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
-    for (let i = 0; i < count; i++) {
-      bx0 = Math.min(bx0, px[i]); bx1 = Math.max(bx1, px[i]);
-      by0 = Math.min(by0, py[i]); by1 = Math.max(by1, py[i]);
-    }
-    this.bounds = { x0: bx0, y0: by0, x1: bx1, y1: by1 };
-    this.corners = this._detectCorners();
-  }
-
-  _detectCorners() {
-    const corners = [];
-    const THRESH = 0.0022;   // 1/m â€” anything tighter than a ~450 m radius
-    let start = -1;
-    for (let i = 0; i < this.count; i++) {
-      const k = Math.abs(this.kappa[i]);
-      if (k > THRESH) {
-        if (start < 0) start = i;
-      } else if (start >= 0) {
-        if (i - start > 2) {
-          let peak = start;
-          for (let j = start; j < i; j++) if (Math.abs(this.kappa[j]) > Math.abs(this.kappa[peak])) peak = j;
-          corners.push({ index: peak, s: peak * SPACING, severity: Math.abs(this.kappa[peak]), dir: Math.sign(this.kappa[peak]) });
-        }
-        start = -1;
-      }
-    }
-    if (start >= 0 && this.count - start > 2) {
-      let peak = start;
-      for (let j = start; j < this.count; j++) if (Math.abs(this.kappa[j]) > Math.abs(this.kappa[peak])) peak = j;
-      corners.push({ index: peak, s: peak * SPACING, severity: Math.abs(this.kappa[peak]), dir: Math.sign(this.kappa[peak]) });
-    }
-    corners.sort((a, b) => a.s - b.s);
-    corners.forEach((c, i) => { c.number = i + 1; });
-    return corners;
-  }
-
-  /* --------------------------- racing line --------------------------- */
-
-  _buildRacingLine() {
-    const { count, px, py, nx, ny, halfWidth } = this;
-    const lx = new Float32Array(count), ly = new Float32Array(count);
-    for (let i = 0; i < count; i++) { lx[i] = px[i]; ly[i] = py[i]; }
-
-    const limit = new Float32Array(count);
-    for (let i = 0; i < count; i++) limit[i] = Math.max(1, halfWidth[i] - MARGIN);
-
-    const ITER = 320;
-    const step = 0.36;
-    for (let it = 0; it < ITER; it++) {
-      for (let i = 0; i < count; i++) {
-        const a = (i - 1 + count) % count, b = (i + 1) % count;
-        const tx = (lx[a] + lx[b]) * 0.5;
-        const ty = (ly[a] + ly[b]) * 0.5;
-        let x = lerp(lx[i], tx, step);
-        let y = lerp(ly[i], ty, step);
-        // Keep the line inside the white line (local search only â€” cheap).
-        const p = this._projectNear(x, y, i, 6);
-        const lat = p.lateral;
-        const cl = clamp(lat, -limit[i], limit[i]);
-        if (cl !== lat) {
-          x = px[i] + nx[i] * cl;
-          y = py[i] + ny[i] * cl;
-        }
-        lx[i] = x; ly[i] = y;
-      }
-    }
-
-    this.rlX = lx; this.rlY = ly;
-    this.rlLateral = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      this.rlLateral[i] = (lx[i] - px[i]) * nx[i] + (ly[i] - py[i]) * ny[i];
-    }
-
-    // Curvature + speed profile of the racing line.
-    this.rlKappa = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      const a = (i - 1 + count) % count, b = (i + 1) % count;
-      const ax = lx[i] - lx[a], ay = ly[i] - ly[a];
-      const bx = lx[b] - lx[i], by = ly[b] - ly[i];
-      const l1 = Math.hypot(ax, ay) || 1, l2 = Math.hypot(bx, by) || 1;
-      const cross = (ax / l1) * (by / l2) - (ay / l1) * (bx / l2);
-      const dot = clamp((ax / l1) * (bx / l2) + (ay / l1) * (by / l2), -1, 1);
-      this.rlKappa[i] = Math.atan2(cross, dot) / SPACING;
-    }
-    this.rlSpeed = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      const k = Math.abs(this.rlKappa[i]);
-      this.rlSpeed[i] = k < 1e-5 ? 999 : Math.sqrt(this.lateralAccel() / k);
-    }
-    // Backward pass: never arrive at a corner faster than it can be taken.
-    for (let pass = 0; pass < 3; pass++) {
-      for (let n = count - 1; n >= 0; n--) {
-        const nxt = (n + 1) % count;
-        const v = this.rlSpeed[nxt];
-        const brake = 13.5;
-        this.rlSpeed[n] = Math.min(this.rlSpeed[n], Math.sqrt(v * v + 2 * brake * SPACING));
-      }
-    }
-    this.lapTimeEstimate = this.estimateLapTime();
-  }
-
-  _projectNear(x, y, hint, radius) {
-    const { count, px, py } = this;
-    let best = -1, bestD = Infinity;
-    for (let k = -radius; k <= radius; k++) {
-      const i = (hint + k + count * 2) % count;
-      const d = (px[i] - x) ** 2 + (py[i] - y) ** 2;
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    // Refine against the two adjacent segments.
-    let bi = best, bt = 0, bd = bestD;
-    for (let k = -1; k <= 0; k++) {
-      const i = (best + k + count) % count;
-      const j = (i + 1) % count;
-      const ax = px[i], ay = py[i];
-      const vx = px[j] - ax, vy = py[j] - ay;
-      const len2 = vx * vx + vy * vy || 1;
-      const t = clamp(((x - ax) * vx + (y - ay) * vy) / len2, 0, 1);
-      const cx = ax + vx * t, cy = ay + vy * t;
-      const d = (cx - x) ** 2 + (cy - y) ** 2;
-      if (d < bd) { bd = d; bi = i; bt = t; }
-    }
-    const nx = this.nx[bi], ny = this.ny[bi];
-    return {
-      index: bi, t: bt,
-      s: (bi + bt) * SPACING,
-      lateral: (x - (px[bi] + (px[(bi + 1) % count] - px[bi]) * bt)) * nx +
-               (y - (py[bi] + (py[(bi + 1) % count] - py[bi]) * bt)) * ny,
-      dist2: bd,
-    };
-  }
-
-  _nearestGlobal(x, y) {
-    const { count, px, py } = this;
-    let best = 0, bestD = Infinity;
-    for (let i = 0; i < count; i++) {
-      const d = (px[i] - x) ** 2 + (py[i] - y) ** 2;
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return this._projectNear(x, y, best, 4);
-  }
-
-  /* ----------------------------- pit lane ----------------------------- */
-
-  _buildPitLane() {
-    // Find the longest low-curvature stretch in the first third of the lap.
-    const searchFrom = Math.floor(this.count * 0.04);
-    const searchTo = Math.floor(this.count * 0.3);
-    const THRESH = 0.0016;
-    let bestStart = -1, bestLen = 0, runStart = -1;
-    for (let i = searchFrom; i <= searchTo; i++) {
-      const straight = Math.abs(this.kappa[i % this.count]) < THRESH;
-      if (straight) { if (runStart < 0) runStart = i; }
-      else if (runStart >= 0) {
-        const len = i - runStart;
-        if (len > bestLen) { bestLen = len; bestStart = runStart; }
-        runStart = -1;
-      }
-    }
-    if (runStart >= 0 && searchTo - runStart > bestLen) { bestLen = searchTo - runStart; bestStart = runStart; }
-    if (bestStart < 0 || bestLen * SPACING < 150) {
-      bestStart = searchFrom;
-      bestLen = Math.floor(150 / SPACING);
-    }
-
-    const centreIndex = bestStart + Math.floor(bestLen / 2);
-    const entryS = ((bestStart * SPACING) - 40 + this.length) % this.length;
-    const exitS = (((bestStart + bestLen) * SPACING) + 60) % this.length;
-    const boxS = (centreIndex * SPACING) % this.length;
-    this.pit = {
-      entryS,
-      exitS,
-      // The wall only needs to protect the garages themselves. Running it all
-      // the way back to the entry left cars stranded in the dead zone between
-      // the track edge and the lane, unable to cross over before the barrier.
-      wallS0: (boxS - 45 + this.length) % this.length,
-      wallS1: (boxS + 50 + this.length) % this.length,
-      boxS,
-      offset: PIT_LANE_OFFSET,
-      width: PIT_LANE_WIDTH,
-      speedLimit: 22,          // m/s (80 km/h)
-    };
-  }
-
-  /** Centre of a car's assigned slot across the pit lane. */
-  pitLaneLateral(s, slot = 0) {
-    const i = this.indexAt(s);
-    return this.halfWidth[i] + this.pit.offset + ((((slot | 0) % 4) - 1.5) * 1.5);
-  }
-
-  /** Is the pit-lane opening reachable at this distance along the lap? */
-  inPitWindow(s) {
-    const p = this.pit;
-    return sBetween(p.entryS, p.exitS, s, this.length);
-  }
-
-  /** Is the pit wall in the way here? (the box is the only walled part) */
-  inPitWall(s) {
-    const p = this.pit;
-    return sBetween(p.wallS0, p.wallS1, s, this.length);
-  }
-
-  /** Lateral offset of the pit-lane centre at distance s, or null. */
-  pitLateralAt(s) {
-    if (!this.inPitWindow(s)) return null;
-    const p = this.pit;
-    const i = this.indexAt(s);
-    return this.halfWidth[i] + p.offset;
-  }
-
-  /* ------------------------------ sectors ------------------------------ */
-
-  _buildSectors() {
-    // Split the lap proportionally to the configured bias, snapped to samples.
-    const b = this.sectorBias;
-    this.sectorS = [
-      0,
-      Math.floor((this.length * b[0]) / SPACING) * SPACING,
-      Math.floor((this.length * (b[0] + b[1])) / SPACING) * SPACING,
-      this.length,
-    ];
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* Queries                                                              */
-  /* ------------------------------------------------------------------ */
-
-  indexAt(s) {
-    const n = this.count;
-    let i = Math.floor(s / SPACING) % n;
-    if (i < 0) i += n;
-    return i;
-  }
-
-  sampleS(i) {
-    return (i % this.count) * SPACING;
-  }
-
-  wrapS(s) {
-    const L = this.length;
-    s %= L;
-    return s < 0 ? s + L : s;
-  }
-
-  /** Distance along the lap from `a` to `b` in [0, length). */
-  delta(a, b) {
-    let d = b - a;
-    const L = this.length;
-    d %= L;
-    if (d < 0) d += L;
-    return d;
-  }
-
-  /** Forward distance from a to b (may be negative if b is behind a). */
-  signedDelta(a, b) {
-    let d = (b - a) % this.length;
-    if (d < 0) d += this.length;
-    if (d > this.length / 2) d -= this.length;
-    return d;
-  }
-
-  point(i) {
-    const n = this.count;
-    i = ((i % n) + n) % n;
-    return { x: this.px[i], y: this.py[i] };
-  }
-
-  /** World position at arc length `s` with lateral offset. */
-  pointAt(s, lateral = 0) {
-    const L = this.length;
-    s = ((s % L) + L) % L;
-    const f = s / SPACING;
-    const i = Math.floor(f) % this.count;
-    const j = (i + 1) % this.count;
-    const t = f - Math.floor(f);
-    const x = lerp(this.px[i], this.px[j], t);
-    const y = lerp(this.py[i], this.py[j], t);
-    return { x: x + this.nx[i] * lateral, y: y + this.ny[i] * lateral };
-  }
-
-  /** Project a world position onto the track. `hint` = previous index. */
-  project(x, y, hint = -1) {
-    if (hint >= 0) {
-      const p = this._projectNear(x, y, hint, 30);
-      if (p.dist2 < 90 * 90) return p;
-    }
-    return this._nearestGlobal(x, y);
-  }
-
-  lateralOffsetAt(i, x, y) {
-    return (x - this.px[i]) * this.nx[i] + (y - this.py[i]) * this.ny[i];
-  }
-
-  isOnTrack(i, lateral) {
-    return Math.abs(lateral) <= this.halfWidth[i];
-  }
-
-  /** Physical grip ceiling of the layout (m/s^2). */
-  lateralAccel() {
-    return 27.5 * this.grip;
-  }
-
-  /** Track-limits speed for a corner at index i. */
-  cornerSpeed(i, latAccel = this.lateralAccel()) {
-    const k = Math.abs(this.rlKappa[i]);
-    return k < 1e-5 ? 999 : Math.sqrt(latAccel / k);
-  }
-
-  /** Racing-line speed at arc length s. */
-  rlSpeedAt(s) {
-    return this.rlSpeed[this.indexAt(s)];
-  }
-
-  racingLinePoint(s) {
-    const i = this.indexAt(s);
-    return { x: this.rlX[i], y: this.rlY[i], index: i };
-  }
-
-  /** Nearest corner ahead of s, within `range` metres. */
-  nextCorner(s, range = 400) {
-    for (const c of this.corners) {
-      if (this.delta(s, c.s) < range) return c;
-    }
-    return null;
-  }
-
-  /** Normalised position for the minimap. */
-  toMap(x, y, w, h, pad = 8) {
-    const b = this.bounds;
-    const sx = (w - pad * 2) / (b.x1 - b.x0);
-    const sy = (h - pad * 2) / (b.y1 - b.y0);
-    const k = Math.min(sx, sy);
-    const ox = pad + ((w - pad * 2) - (b.x1 - b.x0) * k) / 2;
-    const oy = pad + ((h - pad * 2) - (b.y1 - b.y0) * k) / 2;
-    return { x: ox + (x - b.x0) * k, y: oy + (y - b.y0) * k, k };
-  }
-
-  /** Rough estimate of a clean lap time in seconds. */
-  estimateLapTime() {
-    let t = 0;
-    for (let i = 0; i < this.count; i++) {
-      const v = Math.min(this.rlSpeed[i], 99);
-      t += SPACING / v;
-    }
-    return t;
-  }
-
-  /** Rolling sample of the racing line for rendering the "ideal line". */
-  forEachLinePoint(fn) {
-    for (let i = 0; i < this.count; i++) fn(this.rlX[i], this.rlY[i], i);
   }
 }
 
-/** Is `b` ahead of `a` in the forward direction? Handles wrap-around. */
-function sBetween(a, b, s, L) {
-  if (a <= b) return s >= a && s <= b;
-  return s >= a || s <= b;
+function arcBetween(pts, from, to) {
+  const m = pts.length;
+  let total = 0;
+  let i = mod(from, m);
+  let guard = 0;
+  while (i !== mod(to, m) && guard++ < m * 2) {
+    const a = pts[i % m];
+    const b = pts[(i + 1) % m];
+    total += dist(a.x, a.y, b.x, b.y);
+    i++;
+  }
+  return total;
 }
 
-export { SPACING as TRACK_SPACING, sBetween };
+function findDrsZones(track) {
+  const pts = track.points;
+  const m = pts.length;
+  const zones = [];
+  const minLen = 190;
+  let start = -1;
+  for (let i = 0; i <= m; i++) {
+    const p = pts[i % m];
+    const straight = Math.abs(p.curv) < 0.0035 && p.radius > 300;
+    const valid = i > 8 && i < m - 8;
+    if (straight && valid) {
+      if (start < 0) start = i;
+    } else if (start >= 0) {
+      const end = Math.min(i, m);
+      if (arcBetween(pts, start, end) >= minLen) zones.push({ from: start % m, to: end % m, length: arcBetween(pts, start, end) });
+      start = -1;
+    }
+  }
+  return zones;
+}
+
+function buildRacingLine(track, aggression) {
+  const pts = track.points;
+  const m = pts.length;
+  const off = new Array(m);
+  for (let i = 0; i < m; i++) {
+    const p = pts[i];
+    const radius = p.radius;
+    if (radius > 1e4) off[i] = 0;
+    else {
+      const strength = clamp((1600 - radius) / 1350, 0, 1);
+      off[i] = -Math.sign(p.curv || 1) * (p.halfWidth - 2.4) * strength * aggression;
+    }
+  }
+  for (let pass = 0; pass < 24; pass++) {
+    const src = off.slice();
+    for (let i = 0; i < m; i++) off[i] = src[(i - 1 + m) % m] * 0.26 + src[i] * 0.48 + src[(i + 1) % m] * 0.26;
+  }
+  const line = new Array(m);
+  for (let i = 0; i < m; i++) {
+    const p = pts[i];
+    const limit = Math.max(0, p.halfWidth - 2.1);
+    const o = clamp(off[i], -limit, limit);
+    line[i] = { x: p.x + p.nx * o, y: p.y + p.ny * o, offset: o, idx: i };
+  }
+  return line;
+}
+
+function buildPit(track) {
+  const pts = track.points;
+  const entryS = track.length * 0.955;
+  const exitS = track.length * 0.06;
+  const laneOffset = track.baseWidth * 0.5 + 6.8;
+  const path = [];
+  const steps = 72;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const s = entryS + (exitS - entryS + track.length) * t;
+    const idx = indexAtS(track, s);
+    const p = pts[idx];
+    const ease = Math.pow(Math.sin(Math.min(1, Math.max(0, t)) * Math.PI), 0.5);
+    const off = laneOffset * ease;
+    path.push({ x: p.x - p.nx * off, y: p.y - p.ny * off, idx });
+  }
+  const boxes = [];
+  const boxCount = 11;
+  for (let i = 0; i < boxCount; i++) {
+    const t = 0.2 + (i / (boxCount - 1)) * 0.44;
+    const k = Math.round(t * (path.length - 1));
+    const pt = path[k];
+    const nxt = path[Math.min(path.length - 1, k + 1)];
+    boxes.push({ x: pt.x, y: pt.y, heading: Math.atan2(nxt.y - pt.y, nxt.x - pt.x), index: i });
+  }
+  return { entryS, exitS, path, boxes, halfWidth: 5.8, speedLimit: 22.2, laneOffset };
+}
+
+function toPath(pts, step) {
+  let d = '';
+  let i = 0;
+  for (i = 0; i < pts.length; i += step) {
+    d += `${i === 0 ? 'M' : 'L'}${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)} `;
+  }
+  return `${d}Z`;
+}
+
+/** Construye la geometría de un circuito con un factor de radio dado. */
+function assemble(def, radiusFactor, spacing = 4.2) {
+  const segs = parseSegments(def, radiusFactor);
+  const closed = fitClosed(closeLoop(segs));
+  /* escala uniforme para respetar la longitud oficial del trazado */
+  const k = (def.length * 1000) / polyLength(closed);
+  for (const p of closed) {
+    p.x *= k;
+    p.y *= k;
+  }
+  const pts = resample(closed, spacing);
+  const m = pts.length;
+
+  for (let i = 0; i < m; i++) {
+    const prev = pts[(i - 1 + m) % m];
+    const next = pts[(i + 1) % m];
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const l = Math.hypot(dx, dy) || 1;
+    pts[i].dirX = dx / l;
+    pts[i].dirY = dy / l;
+    pts[i].nx = -dy / l;
+    pts[i].ny = dx / l;
+    const h0 = Math.atan2(pts[i].y - prev.y, pts[i].x - prev.x);
+    const h1 = Math.atan2(next.y - pts[i].y, next.x - pts[i].x);
+    const dHead = mod(h1 - h0 + Math.PI, TAU) - Math.PI;
+    const ds = dist(pts[i].x, pts[i].y, next.x, next.y) || 0.01;
+    pts[i].curv = dHead / ds;
+    pts[i].s = 0;
+  }
+  let acc = 0;
+  for (let i = 0; i < m; i++) {
+    pts[i].s = acc;
+    acc += dist(pts[i].x, pts[i].y, pts[(i + 1) % m].x, pts[(i + 1) % m].y);
+  }
+  smoothField(pts, 'curv', 5, 2);
+
+  const baseWidth = def.width || 13.5;
+  for (let i = 0; i < m; i++) {
+    const p = pts[i];
+    const radius = Math.max(25, 1 / Math.max(1e-5, Math.abs(p.curv)));
+    p.radius = radius;
+    const fast = clamp((radius - 90) / 700, 0, 1);
+    const slow = clamp((190 - radius) / 160, 0, 1);
+    p.halfWidth = baseWidth * (0.5 - 0.05 * fast + 0.12 * slow);
+    p.kerb = radius < 145 ? 1 : 0;
+  }
+  smoothField(pts, 'halfWidth', 6, 2);
+
+  const track = {
+    def,
+    id: def.id,
+    name: def.name,
+    gp: def.gp,
+    city: def.city,
+    country: def.country,
+    flag: def.flag,
+    record: def.record || '—',
+    night: Boolean(def.night),
+    weather: def.weather || 'dry',
+    surfaceGrip: def.grip ?? 1,
+    baseWidth,
+    points: pts,
+    n: m,
+    length: acc,
+    startIdx: 0,
+    sectors: [acc * 0.33, acc * 0.66],
+    corners: def.corners || [],
+  };
+
+  track.drsZones = findDrsZones(track);
+  track.line = buildRacingLine(track, 0.85);
+  track.lineAggressive = buildRacingLine(track, 1.06);
+  track.idealLap = idealLapTime(track, 1);
+  track.pit = buildPit(track);
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  track.bounds = { minX: minX - 95, minY: minY - 95, maxX: maxX + 95, maxY: maxY + 95 };
+  track.center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  track.span = Math.max(maxX - minX, maxY - minY);
+  track.mapPath = toPath(pts, 3);
+
+  const startP = pts[0];
+  track.start = { x: startP.x, y: startP.y, heading: Math.atan2(startP.dirY, startP.dirX) };
+  track.radiusFactor = radiusFactor;
+  return track;
+}
+
+/** Convierte "1:15.481" en segundos. */
+export function recordSeconds(record) {
+  if (typeof record !== 'string') return 0;
+  const parts = record.split(':').map((n) => parseFloat(n));
+  if (parts.some(Number.isNaN)) return 0;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
+}
+
+const CACHE = new Map();
+
+/**
+ * Construye un circuito completo. La longitud se ajusta a la oficial, el lazo
+ * se cierra relajando las rectas y el número de vueltas sale de la distancia
+ * de carrera, no al revés.
+ */
+export function buildTrack(def) {
+  const cached = CACHE.get(def.id);
+  if (cached) return cached;
+  const track = assemble(def, 1, 4.2);
+  /* distancia de carrera al estilo F1: alrededor de 300 km */
+  const distance = def.distance || 300;
+  track.laps = clamp(Math.round(distance / (track.length / 1000)), 20, 95);
+  track.raceDistance = track.laps * (track.length / 1000);
+  /* récord de referencia jugable: algo más lento que el límite teórico */
+  track.referenceLap = track.idealLap * 1.035;
+  CACHE.set(def.id, track);
+  return track;
+}
+
+/** Perfil de velocidad ideal (m/s) según curvatura y agarre. */
+export function speedProfile(track, gripFactor = 1) {
+  const pts = track.points;
+  const m = pts.length;
+  const v = new Array(m);
+  const latAccel = 17.8 * gripFactor;
+  for (let i = 0; i < m; i++) {
+    const k = Math.max(1e-5, Math.abs(pts[i].curv));
+    v[i] = clamp(Math.sqrt(latAccel / k), 11, 97);
+  }
+  const accel = 11.5 * gripFactor;
+  const decel = 27 * gripFactor;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = m - 1; i >= 0; i--) {
+      const next = v[(i + 1) % m];
+      const ds = dist(pts[i].x, pts[i].y, pts[(i + 1) % m].x, pts[(i + 1) % m].y);
+      v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * decel * ds));
+    }
+    for (let i = 0; i < m; i++) {
+      const prev = v[(i - 1 + m) % m];
+      const ds = dist(pts[i].x, pts[i].y, pts[(i - 1 + m) % m].x, pts[(i - 1 + m) % m].y);
+      v[i] = Math.min(v[i], Math.sqrt(prev * prev + 2 * accel * ds));
+    }
+  }
+  return v;
+}
+
+export function idealLapTime(track, gripFactor = 1) {
+  const v = speedProfile(track, gripFactor);
+  const pts = track.points;
+  let total = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const next = pts[(i + 1) % pts.length];
+    const ds = dist(pts[i].x, pts[i].y, next.x, next.y);
+    const speed = Math.max(6, (v[i] + v[(i + 1) % pts.length]) / 2);
+    total += ds / speed;
+  }
+  return total * 1000;
+}
+
+export function indexAtS(track, s) {
+  const pts = track.points;
+  const target = mod(s, track.length);
+  let lo = 0;
+  let hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].s < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+export function pointAtS(track, s) {
+  return track.points[indexAtS(track, s)];
+}
+
+/** Proyecta el coche sobre la pista: índice, avance, distancia lateral. */
+export function projectCar(track, x, y, hint = 0) {
+  const pts = track.points;
+  const m = pts.length;
+  let best = mod(hint, m);
+  let bestD = Infinity;
+  const window = 48;
+  for (let k = -window; k <= window; k++) {
+    const i = mod(hint + k, m);
+    const p = pts[i];
+    const dx = x - p.x;
+    const dy = y - p.y;
+    const along = dx * p.dirX + dy * p.dirY;
+    const lateral = dx * p.nx + dy * p.ny;
+    const d = Math.abs(lateral) + Math.max(0, Math.abs(along) - 4) * 2.5;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  /* si el resultado local es dudioso, se busca el punto más cercano real */
+  if (bestD > 6) {
+    let gBest = best;
+    let gD = Infinity;
+    for (let i = 0; i < m; i++) {
+      const d = dist(x, y, pts[i].x, pts[i].y);
+      if (d < gD) {
+        gD = d;
+        gBest = i;
+      }
+    }
+    if (gD + 1.5 < bestD) {
+      best = gBest;
+      bestD = gD;
+    }
+  }
+  const p = pts[best];
+  const dx = x - p.x;
+  const dy = y - p.y;
+  const along = dx * p.dirX + dy * p.dirY;
+  const lateral = dx * p.nx + dy * p.ny;
+  return {
+    idx: best,
+    s: mod(p.s + along, track.length),
+    lateral,
+    dist: Math.abs(lateral),
+    dirX: p.dirX,
+    dirY: p.dirY,
+    heading: Math.atan2(p.dirY, p.dirX),
+    halfWidth: p.halfWidth,
+    onTrack: Math.abs(lateral) <= p.halfWidth + 0.4,
+    kerb: Math.abs(lateral) > p.halfWidth - 1.0 && Math.abs(lateral) <= p.halfWidth + 1.6 && p.kerb === 1,
+    radius: p.radius,
+    curv: p.curv,
+  };
+}
+
+export function inDrsZone(track, idx) {
+  for (const z of track.drsZones) {
+    if (z.to > z.from) {
+      if (idx >= z.from && idx <= z.to) return z;
+    } else if (idx >= z.from || idx <= z.to) return z;
+  }
+  return null;
+}
+
+export function sectorAt(track, s) {
+  if (s < track.sectors[0]) return 1;
+  if (s < track.sectors[1]) return 2;
+  return 3;
+}
+
+export function nearestPitDistance(track, x, y) {
+  let best = Infinity;
+  const path = track.pit.path;
+  for (let i = 0; i < path.length; i++) {
+    const d = dist(x, y, path[i].x, path[i].y);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+export function inPitLane(track, x, y) {
+  return nearestPitDistance(track, x, y) < track.pit.halfWidth + 1.2;
+}
+
+/**
+ * Minimapa en un viewBox de 0 0 100 100. Devuelve la traza ya proyectada y las
+ * piezas (línea de meta, boxes) listas para dibujar.
+ */
+export function minimap(track, step = 2) {
+  const b = track.bounds;
+  const w = b.maxX - b.minX;
+  const h = b.maxY - b.minY;
+  const scale = Math.min(100 / w, 100 / h);
+  const ox = (100 - w * scale) / 2;
+  const oy = (100 - h * scale) / 2;
+  const px = (x) => (x - b.minX) * scale + ox;
+  const py = (y) => (y - b.minY) * scale + oy;
+  const pts = track.points;
+  let d = '';
+  for (let i = 0; i < pts.length; i += step) {
+    d += `${i === 0 ? 'M' : 'L'}${px(pts[i].x).toFixed(2)} ${py(pts[i].y).toFixed(2)} `;
+  }
+  const last = pts[pts.length - 1];
+  d += `L${px(pts[0].x).toFixed(2)} ${py(pts[0].y).toFixed(2)} Z`;
+  const pitPath = track.pit.path
+    .filter((_, i) => i % 2 === 0)
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.x).toFixed(2)} ${py(p.y).toFixed(2)}`)
+    .join(' ');
+  const start = track.start;
+  const startLine = {
+    x1: px(start.x + start.dirY * 9),
+    y1: py(start.y - start.dirX * 9),
+    x2: px(start.x - start.dirY * 9),
+    y2: py(start.y + start.dirX * 9),
+  };
+  return {
+    d,
+    pitPath,
+    startLine,
+    scale,
+    ox,
+    oy,
+    minX: b.minX,
+    minY: b.minY,
+    project(x, y) {
+      return { x: px(x), y: py(y) };
+    },
+  };
+}
