@@ -1,0 +1,14 @@
+{
+  "name": "apex-gp-2026",
+  "version": "1.0.0",
+  "description": "APEX GP 2026 — browser Formula 1 racing and team management simulation",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "npx --yes http-server -p 8080 -c-1 .",
+    "serve": "python -m http.server 8080",
+    "test": "node tests/smoke.mjs"
+  },
+  "keywords": ["formula1", "racing", "game", "canvas", "simulation"],
+  "license": "MIT"
+}
