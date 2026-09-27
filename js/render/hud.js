@@ -81,8 +81,10 @@ export class Hud {
   }
 
   setMinimapVisible(on) {
-    this.minimapVisible = on;
-    this.mapCanvas.hidden = !on;
+    this.minimapVisible = Boolean(on);
+    this.mapCanvas.hidden = !this.minimapVisible;
+    /* Al volver a mostrarse hay que recalcular el tamaño del lienzo. */
+    if (this.minimapVisible) this.minimap.layout();
   }
 
   setUnits(units) {

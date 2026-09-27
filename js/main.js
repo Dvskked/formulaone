@@ -50,6 +50,8 @@ function finishBoot() {
   setTimeout(() => {
     dom.boot.root.hidden = true;
     showMenu();
+    /* Avisa al vigilante del index.html de que todo ha ido bien. */
+    window.dispatchEvent(new CustomEvent('predestinato:ready'));
   }, 460);
 }
 
@@ -231,23 +233,40 @@ function wireLifecycle() {
 }
 
 function init() {
-  dom = {
-    boot: {
-      root: $('#boot'), fill: $('#boot-fill'), status: $('#boot-status'),
-      pct: $('#boot-pct'), tip: $('#boot-tip'),
-    },
-    menu: {
-      root: $('#menu'), side: $('#menu-side'),
-      continueBtn: $('#mc-continue'), continueTitle: $('#mc-continue-title'), continueDesc: $('#mc-continue-desc'),
-      newBtn: $('#mc-new'), savesBtn: $('#mc-saves'), howBtn: $('#mc-how'),
-      soundBtn: $('#menu-sound'), settingsBtn: $('#menu-settings'), foot: $('#menu-foot-text'),
-    },
-    app: { root: $('#app') },
-  };
-  menuBg = new MenuBackground($('#menu-canvas'));
-  wireMenu();
-  wireLifecycle();
-  runBoot();
+  try {
+    dom = {
+      boot: {
+        root: $('#boot'), fill: $('#boot-fill'), status: $('#boot-status'),
+        pct: $('#boot-pct'), tip: $('#boot-tip'),
+      },
+      menu: {
+        root: $('#menu'), side: $('#menu-side'),
+        continueBtn: $('#mc-continue'), continueTitle: $('#mc-continue-title'), continueDesc: $('#mc-continue-desc'),
+        newBtn: $('#mc-new'), savesBtn: $('#mc-saves'), howBtn: $('#mc-how'),
+        soundBtn: $('#menu-sound'), settingsBtn: $('#menu-settings'), foot: $('#menu-foot-text'),
+      },
+      app: { root: $('#app') },
+    };
+    const missing = Object.entries(dom)
+      .flatMap(([, part]) => Object.entries(part))
+      .filter(([, node]) => !node)
+      .map(([key]) => key);
+    if (missing.length) throw new Error(`faltan elementos en index.html: ${missing.join(', ')}`);
+    menuBg = new MenuBackground($('#menu-canvas'));
+    wireMenu();
+    wireLifecycle();
+    runBoot();
+  } catch (err) {
+    console.error('No se pudo iniciar', err);
+    const status = document.getElementById('boot-status');
+    const tip = document.getElementById('boot-tip');
+    if (status) status.textContent = 'No se pudo iniciar el juego';
+    if (tip) {
+      tip.textContent = `Error: ${err.message}`;
+      tip.style.color = '#ff6b81';
+      tip.style.whiteSpace = 'pre-wrap';
+    }
+  }
 }
 
 if (typeof document !== 'undefined') {

@@ -622,6 +622,21 @@ export function driverCard(state) {
   };
 }
 
+/**
+ * Lista de entrada para la parrilla con el coche actual del jugador.
+ * Las entradas guardan una copia del equipo en el momento de crearse, así que
+ * sin esto el desarrollo comprado en el garaje no se notaría en pista.
+ * @param {object} state estado de carrera
+ * @returns {Array<object>}
+ */
+export function gridEntryList(state) {
+  const list = state?.entryList;
+  if (!Array.isArray(list)) return [];
+  const team = state.team;
+  if (!team) return list.slice();
+  return list.map((entry) => (entry.teamId === state.teamId ? { ...entry, team } : entry));
+}
+
 export function teamCard(state) {
   const staff = staffFor(state.team, state.series);
   return {

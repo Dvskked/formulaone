@@ -53,7 +53,8 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 /** Botón con aspecto uniforme. */
 export function button(label, opts = {}) {
   const { kind = '', onClick, disabled, title, small, large, pressed, icon } = opts;
-  return el(`button.btn${kind ? `.btn-${kind}` : ''}`, {
+  const size = small ? '.btn-sm' : large ? '.btn-lg' : '';
+  return el(`button.btn${kind ? `.btn-${kind}` : ''}${size}`, {
     type: 'button',
     title: title || label,
     disabled: Boolean(disabled),

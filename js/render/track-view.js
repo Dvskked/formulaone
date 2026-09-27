@@ -263,15 +263,15 @@ export class TrackView {
     for (const side of [-1, 1]) {
       let run = null;
       const flush = () => {
-        if (!run || run.length < 2) { run = null; return; }
+        if (!run || run.segs.length < 2) { run = null; return; }
         ctx.beginPath();
-        for (let k = 0; k < run.length; k++) {
-          const { a, b } = run[k];
+        for (let k = 0; k < run.segs.length; k++) {
+          const { a, b } = run.segs[k];
           if (k === 0) ctx.moveTo(a.x, a.y); else ctx.lineTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
         }
-        ctx.strokeStyle = run[0].colour;
-        ctx.lineWidth = run[0].width;
+        ctx.strokeStyle = run.colour;
+        ctx.lineWidth = run.width;
         ctx.stroke();
         run = null;
       };
@@ -282,9 +282,9 @@ export class TrackView {
         const a = { x: p.x + p.nx * w * side, y: p.y + p.ny * w * side };
         const b = { x: p.x + p.nx * (w + 1.5) * side, y: p.y + p.ny * (w + 1.5) * side };
         const colour = side > 0 ? KERB_RED : KERB_BLUE;
-        if (run && run[run.length - 1].colour !== colour) flush();
-        run = run || { colour, width: 3.2 };
-        run.push({ a, b });
+        if (run && run.colour !== colour) flush();
+        if (!run) run = { colour, width: 3.2, segs: [] };
+        run.segs.push({ a, b });
       }
       flush();
     }

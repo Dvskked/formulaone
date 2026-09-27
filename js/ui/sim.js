@@ -4,7 +4,7 @@
 
 import { createSession, updateSession } from '../game/race.js';
 import { getCircuit } from '../data/circuits.js';
-import { recordSession, currentRound, advanceToNextRound, roundFinished } from '../game/career.js';
+import { recordSession, currentRound, advanceToNextRound, roundFinished, gridEntryList } from '../game/career.js';
 import { ctx } from './context.js';
 import { autosave } from './save.js';
 
@@ -15,7 +15,7 @@ import { autosave } from './save.js';
 export function simulateSession(state, round, sessionDef) {
   const session = createSession({
     circuit: getCircuit(round.circuitId),
-    entryList: state.entryList,
+    entryList: gridEntryList(state),
     kind: sessionDef.type,
     round,
     settings: ctx.settings,

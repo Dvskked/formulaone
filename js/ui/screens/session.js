@@ -5,7 +5,7 @@
 import { el, button, formatTime } from '../dom.js';
 import { createSession, updateSession, LENGTH_LABELS } from '../../game/race.js';
 import { getCircuit } from '../../data/circuits.js';
-import { recordSession, currentRound, roundFinished, advanceToNextRound } from '../../game/career.js';
+import { recordSession, currentRound, roundFinished, advanceToNextRound, gridEntryList } from '../../game/career.js';
 import { TrackView } from '../../render/track-view.js';
 import { Hud } from '../../render/hud.js';
 import { input } from '../../core/input.js';
@@ -37,7 +37,7 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
 
   const session = createSession({
     circuit,
-    entryList: state.entryList,
+    entryList: gridEntryList(state),
     kind: sessionDef.type,
     round: raceRound,
     settings: ctx.settings,
@@ -249,7 +249,7 @@ function updateAudio(session, controls = {}) {
     load: p.drsOpen ? 1 : 0.45 + throttle * 0.55,
   });
   const sliding = !p.onTrack ? 0.55 : (brake > 0.6 && p.speed > 25 ? 0.22 : 0.04);
-  audio.setTyreScreech(p.speed > 10 ? sliding : 0);
+  audio.setTireScreech(p.speed > 10 ? sliding : 0);
   audio.setSurface(p.onTrack ? 0.12 : 0.5);
 }
 
