@@ -3,7 +3,17 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const suites = ['syntax.mjs', 'circuits.check.mjs', 'track-queries.mjs', 'data.check.mjs', 'physics.check.mjs'];
+const suites = [
+  'syntax.mjs',
+  'circuits.check.mjs',
+  'track-queries.mjs',
+  'data.check.mjs',
+  'physics.check.mjs',
+  'career.check.mjs',
+  'race-engine.check.mjs',
+  'ui.check.mjs',
+  'text.mjs',
+];
 
 const run = (file) =>
   new Promise((resolve) => {
