@@ -1,7 +1,27 @@
-// Los 23 circuitos del calendario 2026 de Fórmula 1 (y soporte de las 14 rondas de F2).
-// Trazados estilizados: cada circuito se describe con rectas y curvas en metros.
+// Los 23 circuitos del calendario 2026 de Fórmula 1, más Sakhir, que hosts los
+// tests de pretemporada. Trazados estilizados: rectas y curvas medidas en metros.
 
 export const CIRCUITS = [
+  {
+    id: 'sakhir',
+    name: 'Bahrain International Circuit',
+    gp: null,
+    city: 'Sakhir',
+    country: 'BHR',
+    flag: '🇧🇭',
+    length: 5.412,
+    laps: 12,
+    record: '1:30.499',
+    weather: 'dry',
+    night: false,
+    width: 13,
+    corners: ['T1', 'T2-3', 'T4', 'T5-6-7', 'T8', 'T9-10', 'T11', 'T13', 'T15'],
+    seg: [
+      ['s', 480], ['c', 95, 62], ['c', 130, -38], ['c', 190, 30], ['c', 120, -44],
+      ['c', 90, 40], ['c', 110, -34], ['s', 520], ['c', 85, 56], ['c', 60, 84],
+      ['c', 150, -26], ['c', 70, 48], ['c', 200, 22], ['c', 100, -40], ['s', 320],
+    ],
+  },
   {
     id: 'albert-park',
     name: 'Albert Park',
@@ -75,7 +95,7 @@ export const CIRCUITS = [
     corners: ['T1', 'T2-3', 'T4-5-6', 'T7', 'T8-9', 'T11-12', 'T14-15', 'T16', 'T17'],
     seg: [
       ['s', 520], ['c', 80, 66], ['c', 140, -34], ['c', 210, -28], ['c', 110, 46],
-      ['c', 90, -54], ['c', 160, 34], ['c', 260, -24], ['s', 330], ['c', 65, 72],
+      ['c', 90, -54], ['c', 160, 34], ['c', 260, -24], ['s', 330], ['c', 38, 82],
       ['c', 120, -40], ['c', 140, 32], ['c', 100, -48], ['c', 210, -22], ['s', 380],
       ['c', 75, 58], ['c', 70, -58], ['c', 110, 42], ['s', 300],
     ],
@@ -404,8 +424,8 @@ export const CIRCUITS = [
     corners: ['T1-2', 'T3-4', 'T5', 'T6-7', 'T8-9', 'T10-11', 'T12', 'T14-15', 'T16-17'],
     seg: [
       ['s', 1150], ['c', 210, 16], ['c', 95, -30], ['c', 75, 40], ['c', 105, -20], ['c', 250, 14],
-      ['s', 380], ['c', 85, -34], ['c', 62, 30], ['c', 72, -24], ['c', 62, 24], ['c', 82, -20],
-      ['c', 52, 18], ['s', 880], ['c', 105, 24], ['c', 70, -28], ['c', 60, 24], ['s', 300],
+      ['s', 380], ['c', 85, -34],       ['c', 62, 30], ['c', 72, -24], ['c', 62, 24], ['c', 82, -20], ['c', 30, 40],
+      ['s', 880], ['c', 105, 24], ['c', 70, -28], ['c', 60, 24], ['s', 300],
     ],
   },
   {
@@ -451,7 +471,7 @@ export const CIRCUITS = [
 const BY_ID = new Map(CIRCUITS.map((c) => [c.id, c]));
 
 export function getCircuit(id) {
-  return BY_ID.get(id) || CIRCUITS[0];
+  return BY_ID.get(id) || null;
 }
 
 export function circuitCount() {

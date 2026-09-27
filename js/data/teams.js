@@ -23,7 +23,7 @@ export const F1_TEAMS = [
       raceEngineer: { name: 'Will Marshall', style: 'analítico', flag: '🇬🇧' },
       performance: { name: 'Dave Charman', style: 'exigente', flag: '🇬🇧' },
     },
-    motto: 'Ganar con rapidísimo y con estilo.',
+    motto: 'Ganar con rapidez y con estilo.',
   },
   {
     id: 'ferrari',
@@ -253,7 +253,7 @@ export const F1_TEAMS = [
       raceEngineer: { name: 'Charles Bacon', style: 'analítico', flag: '🇺🇸' },
       performance: { name: 'Mark McMillan', style: 'analítico', flag: '🇺🇸' },
     },
-    motto: 'Debut con exceptionalismo americano.',
+    motto: 'Debut con excepcionalismo americano.',
   },
 ];
 
@@ -302,8 +302,8 @@ const F1_BY_ID = new Map(F1_TEAMS.map((t) => [t.id, t]));
 const F2_BY_ID = new Map(F2_TEAMS.map((t) => [t.id, t]));
 
 export function getTeam(id, series = 'f1') {
-  if (series === 'f2') return F2_BY_ID.get(id) || F2_TEAMS[0];
-  return F1_BY_ID.get(id) || F1_TEAMS[0];
+  if (series === 'f2') return F2_BY_ID.get(id) || null;
+  return F1_BY_ID.get(id) || null;
 }
 
 export function teamsFor(series) {

@@ -1,0 +1,290 @@
+// Pantalla de sesión: monta el lienzo, el HUD y el bucle de simulación.
+// Es la pantalla más pesada: mantiene su propio requestAnimationFrame y
+// detiene el resto de la interfaz mientras corre.
+
+import { el, button, formatTime } from '../dom.js';
+import { createSession, updateSession, LENGTH_LABELS } from '../../game/race.js';
+import { getCircuit } from '../../data/circuits.js';
+import { recordSession, currentRound, roundFinished, advanceToNextRound } from '../../game/career.js';
+import { TrackView } from '../../render/track-view.js';
+import { Hud } from '../../render/hud.js';
+import { input } from '../../core/input.js';
+import { audio } from '../../core/audio.js';
+import { ctx, buildTeamIndex } from '../context.js';
+import { autosave } from '../save.js';
+
+const SIM_STEP = 1 / 60;
+
+let active = null;
+
+/** Detiene cualquier sesión en curso. */
+export function stopSession() {
+  if (!active) return;
+  active.stop();
+  active = null;
+}
+
+export async function showSession(shell, { session: sessionDef, round } = {}) {
+  const state = ctx.career;
+  stopSession();
+  shell.closeAllModals();
+  shell.stack.length = 0;
+  resetAudioTriggers();
+
+  const raceRound = round || currentRound(state);
+  const circuit = getCircuit(raceRound.circuitId);
+  const teamsById = buildTeamIndex(state.series);
+
+  const session = createSession({
+    circuit,
+    entryList: state.entryList,
+    kind: sessionDef.type,
+    round: raceRound,
+    settings: ctx.settings,
+    seed: `${state.seed}|${state.series}|${state.round}|${sessionDef.id}`,
+  });
+  ctx.session = session;
+
+  const canvas = el('canvas.race-canvas');
+  const hudRoot = el('div');
+  const touch = el('div.touch', null, [
+    el('div.pad.pad-steer', { dataset: { touch: 'steer' } }, el('div.stick')),
+    el('div.pad.pad-thr', { dataset: { touch: 'throttle' }, text: 'ACELERAR' }),
+    el('div.pad.pad-brk', { dataset: { touch: 'brake' }, text: 'FRENO' }),
+    el('div.pad.pad-drs', { dataset: { actionTouch: 'drs' }, text: 'DRS' }),
+    el('div.pad.pad-pit', { dataset: { actionTouch: 'pit' }, text: 'BOXES' }),
+  ]);
+  const pauseBtn = el('button.btn.btn-ghost.hud-btn', { type: 'button', text: '||', title: 'Pausa (Esc)' });
+
+  const wrap = el('div.race', null, [canvas, hudRoot, touch, pauseBtn]);
+  shell.mount(wrap);
+  shell.setNav([]);
+  shell.setChrome({
+    title: `${sessionDef.name} · ${circuit.name}`,
+    subtitle: `${raceRound.flag} ${raceRound.gp} · ${circuit.length} km · ${LENGTH_LABELS[ctx.settings.raceLength] || ' corta'}`,
+    chips: [el('span.chip.chip-red', { text: state.series === 'f1' ? 'F1' : 'F2' }), el('span.chip', { text: circuit.weather })],
+  });
+
+  const view = new TrackView(canvas);
+  view.setTrack(session.track, teamsById);
+  const hud = new Hud(hudRoot);
+  hud.setTrack(session.track);
+  hud.setUnits(ctx.settings.units);
+  hud.setMinimapVisible(ctx.settings.showMinimap !== false);
+  ctx.view = view;
+  ctx.hud = hud;
+
+  input.attach(window);
+  input.setDrivingEnabled(true);
+  input.captureText = false;
+  if (window.matchMedia?.('(pointer: coarse)').matches) {
+    touch.classList.add('on');
+    input.bindTouch(touch);
+  }
+
+  audio.resume();
+  audio.startEngine({ series: state.series });
+  audio.setCrowd(session.kind === 'feature' || session.kind === 'sprint' ? 0.5 : 0.12);
+
+  const runner = {
+    session,
+    raf: 0,
+    accumulator: 0,
+    last: performance.now(),
+    paused: false,
+    finished: false,
+    countdown: session.phase === 'countdown' ? 5.9 : 0,
+    startedAt: Date.now(),
+    pitPrompt: false,
+    stop() {
+      if (this.raf) cancelAnimationFrame(this.raf);
+      if (this.onResize) window.removeEventListener('resize', this.onResize);
+      if (this.onKey) window.removeEventListener('keydown', this.onKey);
+      input.setDrivingEnabled(false);
+      input.detach();
+      audio.stopEngine();
+      audio.stopLoops();
+      audio.setCrowd(0);
+      ctx.session = null;
+      ctx.view = null;
+      ctx.hud = null;
+      ctx.running = false;
+    },
+  };
+  active = runner;
+  ctx.running = true;
+
+  const onResize = () => {
+    view.resize();
+    hud.minimap.layout();
+  };
+  window.addEventListener('resize', onResize);
+  runner.onResize = onResize;
+
+  const onKey = (e) => {
+    if (e.code === 'Escape' || e.code === 'Tab') {
+      e.preventDefault();
+      togglePause();
+    } else if (e.code === 'KeyC') {
+      shell.toast(`Cámara: ${view.cycleCamera()}`, 'warn');
+    } else if (e.code === 'Digit4' || e.code === 'Digit5' || e.code === 'Digit6') {
+      setSimSpeed(Number(e.code.slice(5)) - 3);
+    }
+  };
+  window.addEventListener('keydown', onKey);
+  runner.onKey = onKey;
+
+  const setSimSpeed = (value) => {
+    const speeds = [1, 2, 3];
+    const next = speeds.includes(value) ? value : 1;
+    ctx.settings.simSpeed = next;
+    shell.toast(`Simulación ×${next}`, 'warn');
+  };
+  runner.setSimSpeed = setSimSpeed;
+
+  const togglePause = async () => {
+    if (runner.finished) return;
+    runner.paused = !runner.paused;
+    if (runner.paused) {
+      input.setDrivingEnabled(false);
+      const choice = await shell.modal({
+        title: 'Pausa',
+        body: el('div.stack', null, [
+          el('div.row.row-tight', null, [
+            el('span.chip', { text: `Vuelta ${session.player.lap}/${session.laps}` }),
+            el('span.chip', { text: `P${session.player.position}` }),
+            el('span.chip', { text: `Mejor ${formatTime(session.player.bestLapMs)}` }),
+          ]),
+          el('div.hint', { text: 'C: cambia de cámara · 4/5/6: velocidad de simulación · P: entrar en boxes · R: reincorporarse.' }),
+        ]),
+        actions: [
+          { label: 'Continuar', kind: 'primary', value: 'resume' },
+          { label: 'Reiniciar sesión', value: 'restart' },
+          { label: 'Abandonar', value: 'quit' },
+        ],
+        dismissable: true,
+        onClose: () => {
+          if (runner.finished) return;
+          runner.paused = false;
+          input.setDrivingEnabled(true);
+        },
+      });
+      if (choice === 'restart') {
+        runner.stop();
+        await showSession(shell, { session: sessionDef, round: raceRound });
+      } else if (choice === 'quit') {
+        runner.stop();
+        ctx.career = state;
+        const { showPaddock } = await import('./paddock.js');
+        await showPaddock(shell, {});
+      }
+    } else {
+      input.setDrivingEnabled(true);
+    }
+  };
+  runner.togglePause = togglePause;
+  pauseBtn.addEventListener('click', togglePause);
+
+  const finish = async () => {
+    if (runner.finished) return;
+    runner.finished = true;
+    runner.stop();
+    audio.sfx('finish');
+
+    const payload = { ...session.results, kind: sessionDef.type, round: state.round, sessionId: sessionDef.id };
+    recordSession(state, payload);
+    if (roundFinished(state)) advanceToNextRound(state);
+    autosave();
+
+    const { showResults } = await import('./results.js');
+    await showResults(shell, { sessionDef, round: raceRound, payload, wasDnf: Boolean(session.results.entries.find((e) => e.driverId === state.driver.id)?.retired) });
+  };
+
+  const frame = (now) => {
+    if (!active) return;
+    const wall = Math.min(0.1, (now - runner.last) / 1000);
+    runner.last = now;
+
+    if (!runner.paused) {
+      const speed = ctx.settings.simSpeed || 1;
+      runner.accumulator += wall * speed;
+      let steps = 0;
+      const controls = input.driving(SIM_STEP);
+      runner.controls = controls;
+      while (runner.accumulator >= SIM_STEP && steps < 12) {
+        updateSession(session, SIM_STEP, controls);
+        runner.accumulator -= SIM_STEP;
+        steps++;
+      }
+      if (steps >= 12) runner.accumulator = 0;
+      input.endFrame();
+      updateAudio(session, controls);
+      checkEvents(session);
+    }
+
+    view.draw(session);
+    hud.update(session);
+
+    if (session.completed && !runner.finished) {
+      finish();
+      return;
+    }
+    runner.raf = requestAnimationFrame(frame);
+  };
+  runner.raf = requestAnimationFrame(frame);
+
+  shell.toast(`${sessionDef.name}: pulsa Esc para pausar.`, 'warn');
+  return runner;
+}
+
+function updateAudio(session, controls = {}) {
+  const p = session.player;
+  if (!p) return;
+  const throttle = Math.max(0, controls.throttle || 0);
+  const brake = Math.max(0, controls.brake || 0);
+  audio.updateEngine({
+    rpm: p.rpm || 900,
+    speed: p.speed || 0,
+    throttle: p.speed < 1 ? 0.35 : throttle,
+    load: p.drsOpen ? 1 : 0.45 + throttle * 0.55,
+  });
+  const sliding = !p.onTrack ? 0.55 : (brake > 0.6 && p.speed > 25 ? 0.22 : 0.04);
+  audio.setTyreScreech(p.speed > 10 ? sliding : 0);
+  audio.setSurface(p.onTrack ? 0.12 : 0.5);
+}
+
+let lastLap = 1;
+let lastPhase = '';
+let lastGear = 1;
+let lastDrs = false;
+let lastRetired = false;
+
+/** Reinicia los disparadores de sonido entre sesiones. */
+function resetAudioTriggers() {
+  lastLap = 1;
+  lastPhase = '';
+  lastGear = 1;
+  lastDrs = false;
+  lastRetired = false;
+}
+
+function checkEvents(session) {
+  const p = session.player;
+  if (session.phase !== lastPhase) {
+    if (session.phase === 'green') audio.sfx('beepGo');
+    if (lastPhase === 'countdown') audio.sfx('lights');
+    lastPhase = session.phase;
+  }
+  if (p.lap !== lastLap) {
+    lastLap = p.lap;
+    audio.sfx('lap');
+  }
+  if (p.gear !== lastGear) {
+    lastGear = p.gear;
+    if (p.gear > 1) audio.sfx('gear');
+  }
+  if (p.drsOpen && !lastDrs) audio.sfx('drs');
+  lastDrs = p.drsOpen;
+  if (p.retired && !lastRetired) audio.sfx('crash');
+  lastRetired = p.retired;
+}

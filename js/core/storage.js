@@ -99,6 +99,7 @@ export const DEFAULT_SETTINGS = {
   brakeAssist: true,
   stability: 0.6,
   units: 'metric' /* metric | imperial */,
+  raceLength: 'corta' /* corta | media | larga | completa */,
   hudScale: 1,
   simSpeed: 1,
   showMinimap: true,

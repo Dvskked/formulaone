@@ -27,9 +27,16 @@ export function makeRng(seed) {
     chance: (p) => next() < p,
     sign: () => (next() < 0.5 ? -1 : 1),
     pick: (arr) => arr[Math.floor(next() * arr.length)],
-    weighted(pick) {
+    /**
+     * Elección ponderada.
+     *   rng.weighted(items, weightOf)
+     *   rng.weighted({ items, weightOf })
+     *   rng.weighted(items) con items.weight(item) ya asignado
+     */
+    weighted(pick, weightFn) {
       const items = Array.isArray(pick) ? pick : pick.items;
-      const weightOf = Array.isArray(pick) ? pick.weight : pick.weightOf;
+      const weightOf =
+        weightFn || (Array.isArray(pick) ? pick.weight : pick.weightOf) || (() => 1);
       let total = 0;
       for (const it of items) total += Math.max(0, weightOf(it));
       if (total <= 0) return items[0];

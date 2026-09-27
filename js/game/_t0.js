@@ -8,7 +8,7 @@ const RELAX_ITERATIONS = 600;
 const DAMPING = 0.62;
 const MAX_STEP = 26;
 /** fracción máxima de giro contrario respecto al giro dominante */
-const NEGATIVE_SHARE = 0.42;
+const NEGATIVE_SHARE = 0;
 
 /**
  * DSL de segmentos:
@@ -103,58 +103,39 @@ function normaliseTurn(segs) {
   for (const c of corners) c.angle *= factor;
 }
 
-function closeLoop(segs, targetLength = 0) {
+function closeLoop(segs) {
   normaliseTurn(segs);
   const straights = segs.filter((s) => s.kind === 's');
-  const relax = (iterations) => {
-    let pts = walk(segs);
-    for (let iter = 0; iter < iterations; iter++) {
-      const end = pts[pts.length - 1];
-      const ex = pts[0].x - end.x;
-      const ey = pts[0].y - end.y;
-      const err = Math.hypot(ex, ey);
-      if (err < 0.4) break;
-      let aligned = 0;
-      for (const s of straights) {
-        const a = pts[Math.min(s.index, pts.length - 2)];
-        const b = pts[Math.min(s.index + 1, pts.length - 1)];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const l = Math.hypot(dx, dy) || 1;
-        s.dirX = dx / l;
-        s.dirY = dy / l;
-        aligned += s.dirX * ex + s.dirY * ey;
-      }
-      if (Math.abs(aligned) < 0.5) break;
-      const factor = (DAMPING * err) / aligned;
-      for (const s of straights) {
-        const proj = s.dirX * ex + s.dirY * ey;
-        s.length = clamp(s.length + clamp(proj * factor, -MAX_STEP, MAX_STEP), s.base * 0.45, s.base * 2.6);
-      }
-      pts = walk(segs);
-    }
-    return pts;
-  };
-
-  let pts = relax(RELAX_ITERATIONS);
-  if (!targetLength) return pts;
-
-  /* La longitud oficial manda: se corrige solo con las rectas para que los
-     radios de las curvas (y por tanto las curvas lentas) se respeten */
-  for (let pass = 0; pass < 3; pass++) {
-    const len = polyLength(pts);
-    if (Math.abs(len - targetLength) / targetLength < 0.004) break;
-    const k = targetLength / len;
+  let pts = walk(segs);
+  for (let iter = 0; iter < RELAX_ITERATIONS; iter++) {
+    const end = pts[pts.length - 1];
+    const ex = pts[0].x - end.x;
+    const ey = pts[0].y - end.y;
+    const err = Math.hypot(ex, ey);
+    if (err < 0.4) break;
+    let aligned = 0;
     for (const s of straights) {
-      s.length = clamp(s.length * k, 12, 4000);
-      s.base = s.length;
+      const a = pts[Math.min(s.index, pts.length - 2)];
+      const b = pts[Math.min(s.index + 1, pts.length - 1)];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const l = Math.hypot(dx, dy) || 1;
+      s.dirX = dx / l;
+      s.dirY = dy / l;
+      aligned += s.dirX * ex + s.dirY * ey;
     }
-    pts = relax(Math.max(6, RELAX_ITERATIONS >> 1));
+    if (Math.abs(aligned) < 0.5) break;
+    const factor = (DAMPING * err) / aligned;
+    for (const s of straights) {
+      const proj = s.dirX * ex + s.dirY * ey;
+      s.length = clamp(s.length + clamp(proj * factor, -MAX_STEP, MAX_STEP), s.base * 0.45, s.base * 2.6);
+    }
+    pts = walk(segs);
   }
   return pts;
 }
 
-/** Rota y corrige el trazado para que el lazo cierre de forma continua. */
+/** Rota y escala el trazado para que el lazo cierre exactamente. */
 function fitClosed(pts) {
   const n = pts.length;
   const headStart = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
@@ -172,25 +153,14 @@ function fitClosed(pts) {
   cy /= n;
   const cosA = Math.cos(-delta);
   const sinA = Math.sin(-delta);
-  const out = pts.map((p) => {
+  const rotated = pts.map((p) => {
     const dx = p.x - cx;
     const dy = p.y - cy;
     return { x: cx + dx * cosA - dy * sinA, y: cy + dx * sinA + dy * cosA };
   });
-  /* el hueco residual se reparte a lo largo del lazo para no crear un raíl */
-  let acc = 0;
-  const s = new Array(n);
-  for (let i = 0; i < n; i++) {
-    s[i] = acc;
-    acc += dist(out[i].x, out[i].y, out[(i + 1) % n].x, out[(i + 1) % n].y);
-  }
-  const gx = out[0].x - out[n - 1].x;
-  const gy = out[0].y - out[n - 1].y;
-  for (let i = 0; i < n - 1; i++) {
-    const t = s[i] / acc;
-    out[i].x -= gx * t;
-    out[i].y -= gy * t;
-  }
+  const gap = dist(rotated[0].x, rotated[0].y, rotated[n - 1].x, rotated[n - 1].y);
+  const scale = gap > 0.5 ? clamp(1 - gap / (polyLength(rotated) * 1.6), 0.93, 1) : 1;
+  const out = rotated.map((p) => ({ x: cx + (p.x - cx) * scale, y: cy + (p.y - cy) * scale }));
   out[n - 1].x = out[0].x;
   out[n - 1].y = out[0].y;
   return out;
@@ -307,31 +277,13 @@ function buildPit(track) {
   const laneOffset = track.baseWidth * 0.5 + 6.8;
   const path = [];
   const steps = 72;
-  /* La calle de boxes nunca puede invadir la pista: si el trazado pasa cerca
-     de otro tramo del circuito, se busca el apartamiento que la deja libre,
-     probando ambos lados antes de renunciar */
-  const clearOffset = (p, idx, off) => {
-    const candidates = [];
-    for (const sign of [-1, 1]) {
-      for (const k of [1, 1.3, 1.6, 2, 2.5]) candidates.push({ sign, k });
-    }
-    let best = null;
-    for (const { sign, k } of candidates) {
-      const dist = off * k;
-      const x = p.x - p.nx * dist * sign;
-      const y = p.y - p.ny * dist * sign;
-      if (!projectCar(track, x, y, idx).onTrack) return dist * sign;
-      if (!best) best = dist * sign;
-    }
-    return best;
-  };
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const s = entryS + (exitS - entryS + track.length) * t;
     const idx = indexAtS(track, s);
     const p = pts[idx];
     const ease = Math.pow(Math.sin(Math.min(1, Math.max(0, t)) * Math.PI), 0.5);
-    const off = clearOffset(p, idx, Math.max(1.2, laneOffset * ease));
+    const off = laneOffset * ease;
     path.push({ x: p.x - p.nx * off, y: p.y - p.ny * off, idx });
   }
   const boxes = [];
@@ -358,24 +310,15 @@ function toPath(pts, step) {
 /** Construye la geometría de un circuito con un factor de radio dado. */
 function assemble(def, radiusFactor, spacing = 4.2) {
   const segs = parseSegments(def, radiusFactor);
-  const target = def.length * 1000;
-  const closed = fitClosed(closeLoop(segs, target));
-  /* la escala final solo corrige el residuo: los radios ya son escala real */
-  const k = target / polyLength(closed);
+  const closed = fitClosed(closeLoop(segs));
+  /* escala uniforme para respetar la longitud oficial del trazado */
+  const k = (def.length * 1000) / polyLength(closed);
   for (const p of closed) {
     p.x *= k;
     p.y *= k;
   }
   const pts = resample(closed, spacing);
   const m = pts.length;
-
-  /* distancias acumuladas (con vuelta) para medir sobre arco real */
-  let acc = 0;
-  for (let i = 0; i < m; i++) {
-    pts[i].s = acc;
-    acc += dist(pts[i].x, pts[i].y, pts[(i + 1) % m].x, pts[(i + 1) % m].y);
-  }
-  const total = acc;
 
   for (let i = 0; i < m; i++) {
     const prev = pts[(i - 1 + m) % m];
@@ -387,26 +330,17 @@ function assemble(def, radiusFactor, spacing = 4.2) {
     pts[i].dirY = dy / l;
     pts[i].nx = -dy / l;
     pts[i].ny = dx / l;
+    const h0 = Math.atan2(pts[i].y - prev.y, pts[i].x - prev.x);
+    const h1 = Math.atan2(next.y - pts[i].y, next.x - pts[i].x);
+    const dHead = mod(h1 - h0 + Math.PI, TAU) - Math.PI;
+    const ds = dist(pts[i].x, pts[i].y, next.x, next.y) || 0.01;
+    pts[i].curv = dHead / ds;
+    pts[i].s = 0;
   }
-
-  /* curvatura sobre una ventana de arco fija: estable frente a uneven spacing */
-  const W = 3 * spacing;
-  const ext = (i) => pts[((i % m) + m) % m];
-  const sAt = (i) => pts[((i % m) + m) % m].s + (i >= m ? total : 0) * Math.floor(i / m);
-  let j = 0;
+  let acc = 0;
   for (let i = 0; i < m; i++) {
-    if (j < i + 1) j = i + 1;
-    const si = sAt(i);
-    while (j < i + m - 1 && sAt(j) - si < W) j++;
-    const si1 = sAt(i + 1);
-    const sj = sAt(j);
-    const a = ext(i);
-    const b = ext(i + 1);
-    const c = ext(j);
-    const h0 = Math.atan2(b.y - a.y, b.x - a.x);
-    const h1 = Math.atan2(c.y - b.y, c.x - b.x);
-    const arc = Math.max(0.5, sj - si1);
-    pts[i].curv = (mod(h1 - h0 + Math.PI, TAU) - Math.PI) / arc;
+    pts[i].s = acc;
+    acc += dist(pts[i].x, pts[i].y, pts[(i + 1) % m].x, pts[(i + 1) % m].y);
   }
   smoothField(pts, 'curv', 5, 2);
 
