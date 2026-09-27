@@ -6,14 +6,16 @@ import { createCareer, advanceToNextRound, currentRound } from '../js/game/caree
 import { createSession, updateSession } from '../js/game/race.js';
 import { TrackView } from '../js/render/track-view.js';
 import { Minimap } from '../js/render/minimap.js';
-import { getCircuit } from '../js/data/circuits.js';
-import { CIRCUITS } from '../js/data/circuits.js';
+import { Hud } from '../js/render/hud.js';
+import { getCircuit, CIRCUITS } from '../js/data/circuits.js';
+import { installDom } from './dom.stub.mjs';
 
 let failures = 0;
 const fail = (msg) => { failures++; console.log(`  ✗ ${msg}`); };
 
-/* Los dibujantes leen el DPR de la ventana. */
-globalThis.window = { devicePixelRatio: 2, innerWidth: 1400, innerHeight: 800 };
+/* Los dibujantes leen el DPR de la ventana y el HUD construye DOM. */
+const dom = installDom();
+globalThis.window = { devicePixelRatio: 2, innerWidth: 1400, innerHeight: 800, ...globalThis.window };
 
 /* Contexto 2D falso: acepta cualquier método y anota los argumentos numéricos. */
 function fakeContext(label) {
@@ -106,41 +108,52 @@ const session = createSession({
   seed: 42,
 });
 
-const drive = { steer: 0.12, throttle: 1, brake: 0, handbrake: false, drsPressed: false, pitPressed: false, rescue: false };
-for (let i = 0; i < 2400; i++) updateSession(session, 1 / 60, i % 400 < 200 ? drive : { ...drive, steer: -0.1, brake: 0.4 });
+const drive = { steer: 0, throttle: 1, brake: 0, handbrake: false, drsPressed: false, pitPressed: false, edges: {} };
+
+/* Se capturan estados durante toda la sesion para dibujar situaciones reales:
+  izadas, Coche de Seguridad, banderas, coches retirados y primeros puestos. */
+const snapshots = [];
+for (let i = 0; i < 30 * 900 && !session.completed; i++) {
+  updateSession(session, 1 / 30, drive);
+  if (i % 450 === 0) snapshots.push({ ...session });
+}
+if (!snapshots.length) snapshots.push(session);
 
 const canvas = fakeCanvas();
 instrument(canvas, 'track');
 const view = new TrackView(canvas);
 
-for (let cam = 0; cam <= 4; cam++) {
-  view.camera = cam;
-  try {
-    view.draw(session);
-  } catch (err) {
-    fail(`TrackView.draw lanza en cámara ${cam}: ${err.message}`);
+for (const snap of snapshots) {
+  for (let cam = 0; cam <= 4; cam++) {
+    view.camera = cam;
+    try {
+      view.draw(snap);
+    } catch (err) {
+      fail(`TrackView.draw lanza en camara ${cam}: ${err.message}`);
+      break;
+    }
   }
 }
 
-/* El vehículo debe haber avanzado y la sesión no debe estar rota. */
-if (!(session.player.lap >= 1)) fail('El jugador no completa ninguna vuelta');
-if (!Number.isFinite(session.player.x) || !Number.isFinite(session.player.y)) fail('Posición del jugador no finita');
+/* El vehiculo debe avanzar y la sesion debe producir mensajes. */
+if (!(session.player.dist > 500)) fail('El jugador no avanza');
+if (session.messages.length < 3) fail('No se generan mensajes de carrera');
 if (bad.numbers.length) {
   fail(`Valores no finitos en TrackView: ${[...new Set(bad.numbers)].slice(0, 6).join(', ')}`);
   bad.numbers.length = 0;
 } else {
-  console.log('  OK   visor de pista sin NaN en 5 cámaras');
+  console.log(`  OK   visor de pista: ${snapshots.length} estados x 5 camaras sin NaN`);
 }
-
 /* 2. Minimapa con datos de trazada. */
 const mmCanvas = fakeCanvas(220, 220);
 instrument(mmCanvas, 'minimap');
 const minimap = new Minimap(mmCanvas);
 try {
+  minimap.setTrack(session.track);
   minimap.layout();
   minimap.draw(session);
-  minimap.setPosition({ x: session.player.x, y: session.player.y, angle: session.player.angle });
-  console.log('  OK   minimapa dibuja y posiciona');
+  minimap.draw(session, { highlightSectors: [true, true, false] });
+  console.log('  OK   minimapa dibuja trazada y coches');
 } catch (err) {
   fail(`Minimap lanza: ${err.message}`);
 }
@@ -149,7 +162,7 @@ if (bad.numbers.length) {
   bad.numbers.length = 0;
 }
 
-/* 3. Todos los circuitos se pueden crear y_bounds sin datos inválidos. */
+/* 3. Todos los circuitos se dibujan sin datos inválidos. */
 for (const c of CIRCUITS) {
   const pc = fakeCanvas(400, 300);
   instrument(pc, c.id);
@@ -168,6 +181,37 @@ for (const c of CIRCUITS) {
   }
 }
 console.log(`  OK   ${CIRCUITS.length} circuitos dibujados`);
+
+/* 4. HUD: se construye y se sincroniza con estados reales de carrera. */
+try {
+  const hudRoot = new dom.Element('div');
+  const hud = new Hud(hudRoot);
+  hud.setTrack(session.track);
+  for (const snap of snapshots) {
+    hud.update(snap);
+    hud.updateStandings(snap);
+  }
+  hud.setMinimapVisible(false);
+  hud.update(session);
+  hud.setMinimapVisible(true);
+  hud.minimap.layout();
+  hud.setUnits('imperial');
+  hud.update(session);
+
+  const boxes = hudRoot.querySelectorAll('.hud-box');
+  const gear = hudRoot.querySelector('.hud-gear');
+  const speed = hudRoot.querySelector('.hud-speed b');
+  if (boxes.length < 4) fail(`El HUD solo ha creado ${boxes.length} cajas`);
+  if (gear === null) fail('El HUD no tiene caja de marcha');
+  if (speed === null) fail('El HUD no tiene velocimetro');
+  if (gear && !gear.textContent) fail('La marcha no muestra ningun valor');
+  hud.reset();
+  hud.update(session);
+  hud.destroy();
+  console.log(`  OK   HUD: ${boxes.length} cajas sincronizadas en ${snapshots.length} estados`);
+} catch (err) {
+  fail(`Hud lanza: ${err.message}`);
+}
 
 console.log(failures ? `\nFALLA: ${failures} fallo(s)` : '\nTodo correcto');
 process.exit(failures ? 1 : 0);

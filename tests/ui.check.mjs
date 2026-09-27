@@ -113,7 +113,31 @@ for (const id of ['boot', 'menu', 'app', 'appbar', 'app-body', 'toasts', 'modal-
   check(html.includes(`id="${id}"`), 'index.html no define un elemento usado', `#${id}`);
 }
 check(html.includes('js/main.js'), 'index.html no carga js/main.js');
+check(html.includes('dist/predestinato.bundle.js'), 'index.html no carga el paquete para file://');
 check(html.includes('css/styles.css'), 'index.html no carga la hoja de estilo');
+
+/* ── El paquete de file:// debe existir y traer todos los módulos ──────── */
+
+const bundlePath = join(ROOT, 'dist', 'predestinato.bundle.js');
+const bundle = existsSync(bundlePath) ? readFileSync(bundlePath, 'utf8') : '';
+check(!!bundle, 'Falta dist/predestinato.bundle.js (ejecuta "npm run build")');
+if (bundle) {
+  const sourceFiles = [];
+  const collect = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) collect(full);
+      else if (entry.name.endsWith('.js')) sourceFiles.push(full);
+    }
+  };
+  collect(join(ROOT, 'js'));
+  const missing = sourceFiles
+    .map((f) => relative(ROOT, f).split('\\').join('/'))
+    .filter((id) => !bundle.includes(`__registry["${id}"]`));
+  check(!missing.length, 'Hay módulos fuera del paquete (recompila)', missing.join(', '));
+  check(!/\bimport\s*\(/.test(bundle), 'El paquete aún contiene un import() sin convertir');
+  check(!/^\s*import\s/m.test(bundle), 'El paquete aún contiene un import sin convertir');
+}
 
 /* ── Resultado ────────────────────────────────────────────────────── */
 
