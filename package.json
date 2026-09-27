@@ -5,9 +5,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "npx --yes http-server -p 8080 -c-1 .",
-    "serve": "python -m http.server 8080",
-    "test": "node tests/run-all.mjs",
+    "start": "node server.mjs",
+    "serve": "node server.mjs 8080",
+    "build": "node build.mjs",
+    "test": "node build.mjs && node tests/run-all.mjs",
     "check": "node tests/syntax.mjs"
   },
   "keywords": ["formula1", "f1", "f2", "juego f1", "carrera", "canvas", "navegador"],

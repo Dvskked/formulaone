@@ -82,6 +82,38 @@
   <div class="modal-root" id="modal-root" hidden></div>
 </div>
 
-<script type="module" src="js/main.js"></script>
+<!-- Vigilante de arranque: si el módulo no arranca, se avisa en vez de quedarse colgado. -->
+<script>
+  (function () {
+    var booted = false;
+    var status = document.getElementById('boot-status');
+    var tip = document.getElementById('boot-tip');
+    function fail(msg) {
+      if (booted || !status) return;
+      status.textContent = 'No se pudo iniciar el juego';
+      tip.textContent = 'Error: ' + msg;
+      tip.style.color = '#ff6b81';
+      tip.style.whiteSpace = 'pre-wrap';
+    }
+    /* El juego usa módulos ES: abrir el archivo con doble clic no funciona. */
+    window.__predestinatoFailed = fail;
+    window.addEventListener('predestinato:ready', function () { booted = true; });
+    window.addEventListener('error', function (e) {
+      if (e.target && e.target.tagName === 'SCRIPT') fail('no se ha podido cargar ' + (e.target.src || 'un script'));
+      else if (!booted) fail(e.message || 'error desconocido');
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) {
+      if (!booted) fail(String((e.reason && e.reason.message) || e.reason));
+    });
+    /* Con file:// el navegador bloquea los módulos ES: se usa el paquete. */
+    (function () {
+      var el = document.createElement('script');
+      if (location.protocol === 'file:') el.src = 'dist/predestinato.bundle.js';
+      else { el.type = 'module'; el.src = 'js/main.js'; }
+      el.onerror = function () { fail('no se ha podido cargar ' + el.src); };
+      document.body.appendChild(el);
+    })();
+  })();
+</script>
 </body>
 </html>
