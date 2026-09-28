@@ -102,6 +102,13 @@ export function createSession(config) {
   } else {
     startOrder = entryList.slice().sort((a, b) => b.skill - a.skill + rng.gauss(0.8));
   }
+  const isTimeSession = kind === 'fp' || kind === 'quali' || kind === 'sprintQuali';
+  if (isTimeSession) {
+    /* En practicas y clasificacion manda el crono: el jugador sale el primero y
+       con pista libre. Si no, arranca el ultimo, a casi dos kilometros de la
+       linea y detras de 21 coches, y la sesion no se puede jugar. */
+    startOrder = startOrder.slice().sort((a, b) => (a.isPlayer ? -1 : 0) - (b.isPlayer ? -1 : 0));
+  }
   state.grid = startOrder.map((e, i) => ({ driverId: e.driverId, position: i + 1 }));
 
   /* Distancia de carrera: 20 vueltas en todos los grandes, 8 en el sprint */
@@ -113,26 +120,34 @@ export function createSession(config) {
      estrategia. En prÃ¡cticas y clasificaciÃ³n se sale siempre con blandos. */
   const defaultTyre = kind === 'feature' || kind === 'sprint' ? 'medium' : 'soft';
   const startTyre = TYRES[config.startTyre] ? config.startTyre : defaultTyre;
-  const spacing = kind === 'fp' ? 90 : 9.5;
-  const lateral = kind === 'fp' ? 0 : 1.9;
+  /* Practicas: los coches salen en tres columnas y bien separados, como en una
+     sesion real. Carrera y clasificacion: parrilla de dos en dos. */
+  const spacing = kind === 'fp' ? 46 : 9.5;
+  const lateral = kind === 'fp' ? 3.4 : 1.9;
 
   state.cars = startOrder.map((entry, i) => {
     const c = makeCarState(track, entry, { grid: i + 1, tyre: startTyre });
     c.gridPosition = i + 1;
     c.rng = rng.fork(`ai-${entry.driverId}`);
     c.strategy = makeStrategy(rng.fork(`strat-${entry.driverId}`), kind, state.laps);
-    /* ColocaciÃ³n en pista */
-    const back = kind === 'fp' ? -(i * spacing) - 40 : -(i * spacing) - 6;
+    /* Colocación en pista */
+    const back = kind === 'fp' ? -(i * spacing) - 150 : -(i * spacing) - 8;
     const s = mod(back, track.length);
     const p = pointAtS(track, s);
-    const lat = kind === 'fp' ? 0 : (i % 2 === 0 ? -lateral : lateral);
+    const lat = kind === 'fp'
+      ? [0, -lateral, lateral, -lateral * 2, lateral * 2][i % 5]
+      : (i % 2 === 0 ? -lateral : lateral);
     c.x = p.x + p.nx * lat;
     c.y = p.y + p.ny * lat;
     c.lateral = lat;
     c.idx = indexAtS(track, s);
     c.s = s;
     c.dist = back;
-    c.lap = 0;
+    /* En carreras la parrilla está detrás de la línea pero la vuelta 1 empieza
+       con la señal. En prácticas y clasificación el primer cruce sí arma el
+       cronómetro: si no, la primera vuelta rápida se gasta como vuelta de
+       salida y el jugador se queda sin ningún tiempo. */
+    c.lap = isRace ? 0 : Math.floor(back / track.length);
     c.qualifyingLap = 0;
     c.bestLapMs = 0;
     c.lastLapMs = 0;
@@ -269,14 +284,17 @@ function startPractice(state) {
   for (const c of state.cars) {
     const p = pointAtS(state.track, c.s);
     c.angle = Math.atan2(p.dirY, p.dirX);
-    c.speed = c.isPlayer ? 0 : 42 + c.rng.float(0, 12);
+    /* Todos salen rodando y desparramados: nadie se queda parado en la trazada
+       y el jugador no arranca con 21 coches detrás a 150 km/h */
+    const roll = c.isPlayer ? 34 : 38 + c.rng.float(0, 14);
+    c.speed = roll;
     c.vx = Math.cos(c.angle) * c.speed;
     c.vy = Math.sin(c.angle) * c.speed;
     c.started = true;
     c.lapStartClock = 0;
     c.sectorStart = 0;
   }
-  state.messages.push({ text: 'Libres: no hay lÃ­mite de vueltas. Recopila datos y vuelve al tÃºnel.', kind: 'info' });
+  state.messages.push({ text: 'Libres: no hay límite de vueltas. Suelta el acelerador cuando quieras volver al túnel.', kind: 'info' });
 }
 
 function startQualifying(state) {
@@ -299,6 +317,12 @@ function startQualifying(state) {
   for (const c of state.cars) {
     const p = pointAtS(state.track, c.s);
     c.angle = Math.atan2(p.dirY, p.dirX);
+    /* También en clasificación se sale rodando: parado en la parrilla, el
+       jugador solo sufre el tren de coches que le llega detrás */
+    const roll = c.isPlayer ? 30 : 34 + c.rng.float(0, 12);
+    c.speed = roll;
+    c.vx = Math.cos(c.angle) * c.speed;
+    c.vy = Math.sin(c.angle) * c.speed;
     c.started = true;
     c.lapStartClock = 0;
     c.sectorStart = 0;

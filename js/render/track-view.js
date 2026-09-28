@@ -214,39 +214,74 @@ export class TrackView {
     if (state && state.pitWindowOpen) this.drawPitBox(ctx, state);
   }
 
-  /** Franja de escapatoria a ambos lados del asfalto. */
+  /**
+   * Franja de escapatoria a ambos lados del asfalto: grava en las curvas lentas
+   * y asfalto en las rápidas, como en los trazados reales. Se dibuja por
+   * tramos porque el material cambia punto a punto.
+   */
   drawRunoff(ctx, visible) {
     const pts = this.track.points;
-    const bands = [
-      { from: 1.0, to: 6.5, colour: 'rgba(120, 108, 88, .85)' },
-      { from: 6.5, to: 13, colour: 'rgba(30, 48, 32, .9)' },
-    ];
-    for (const band of bands) {
-      for (const side of [-1, 1]) {
+    const HARD = 7.5;
+    const SOFT = 15;
+    const materials = {
+      gravel: 'rgba(150, 132, 98, .9)',
+      asphalt: 'rgba(52, 56, 66, .9)',
+      grass: 'rgba(46, 74, 50, .9)',
+    };
+    for (const side of [-1, 1]) {
+      /* Banda exterior, siempre verde: separa la pista del entorno */
+      this.runoffBand(ctx, visible, pts, side, SOFT, HARD, () => materials.grass);
+      /* Banda interior de escapatoria, por material */
+      let run = null;
+      const flush = () => {
+        if (!run || run.points.length < 2) { run = null; return; }
         ctx.beginPath();
-        let started = false;
-        for (const i of visible) {
-          const p = pts[i];
-          if (!p) continue;
-          const gravel = p.runoff === 'gravel';
-          const w = p.halfWidth + (band.from === 1.0 && gravel ? band.to : band.from);
-          const x = p.x + p.nx * w * side;
-          const y = p.y + p.ny * w * side;
-          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        const ptsOfRun = run.points;
+        for (let k = 0; k < ptsOfRun.length; k++) {
+          const { a, b } = ptsOfRun[k];
+          if (k === 0) ctx.moveTo(a.x, a.y); else ctx.lineTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
         }
-        for (let k = visible.length - 1; k >= 0; k--) {
-          const p = pts[visible[k]];
-          if (!p) continue;
-          const gravel = p.runoff === 'gravel';
-          const w = p.halfWidth + (band.to === 6.5 && gravel ? band.to : band.to);
-          ctx.lineTo(p.x + p.nx * w * side, p.y + p.ny * w * side);
-        }
-        if (!started) continue;
-        ctx.closePath();
-        ctx.fillStyle = band.colour;
-        ctx.fill();
+        ctx.lineWidth = HARD;
+        ctx.strokeStyle = run.colour;
+        ctx.stroke();
+        run = null;
+      };
+      for (const i of visible) {
+        const p = pts[i];
+        const material = p?.runoff || 'grass';
+        if (!p) { flush(); continue; }
+        if (run && run.material !== material) flush();
+        if (!run) run = { material, colour: materials[material] || materials.grass, points: [] };
+        run.points.push({
+          a: { x: p.x + p.nx * HARD * side, y: p.y + p.ny * HARD * side },
+          b: { x: p.x + p.nx * p.halfWidth * side, y: p.y + p.ny * p.halfWidth * side },
+        });
       }
+      flush();
     }
+  }
+
+  /** Banda continua entre dos distancias del borde del asfalto. */
+  runoffBand(ctx, visible, pts, side, from, to, colourFn) {
+    ctx.beginPath();
+    let started = false;
+    for (const i of visible) {
+      const p = pts[i];
+      if (!p) continue;
+      const x = p.x + p.nx * (p.halfWidth + from) * side;
+      const y = p.y + p.ny * (p.halfWidth + from) * side;
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    for (let k = visible.length - 1; k >= 0; k--) {
+      const p = pts[visible[k]];
+      if (!p) continue;
+      ctx.lineTo(p.x + p.nx * (p.halfWidth + to) * side, p.y + p.ny * (p.halfWidth + to) * side);
+    }
+    if (!started) return;
+    ctx.closePath();
+    ctx.fillStyle = colourFn();
+    ctx.fill();
   }
 
   /** Tribunas y gradas a lo largo del trazado, para que la pista no quede vacía. */

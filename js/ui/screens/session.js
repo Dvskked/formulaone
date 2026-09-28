@@ -209,7 +209,11 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
         title: 'Pausa',
         body: el('div.stack', null, [
           el('div.row.row-tight', null, [
-            el('span.chip', { text: `Vuelta ${session.player.lap}/${session.laps}` }),
+            el('span.chip', {
+              text: session.laps > 0
+                ? `Vuelta ${Math.max(1, session.player.lap)}/${session.laps}`
+                : `Vuelta ${Math.max(1, session.player.lap)} · ${formatTime(session.clock * 1000)} de ${formatTime(session.duration * 1000)}`,
+            }),
             el('span.chip', { text: `P${session.player.position}` }),
             el('span.chip', { text: `Mejor ${formatTime(session.player.bestLapMs)}` }),
           ]),

@@ -4757,6 +4757,13 @@ function createSession(config) {
   } else {
     startOrder = entryList.slice().sort((a, b) => b.skill - a.skill + rng.gauss(0.8));
   }
+  const isTimeSession = kind === 'fp' || kind === 'quali' || kind === 'sprintQuali';
+  if (isTimeSession) {
+    /* En practicas y clasificacion manda el crono: el jugador sale el primero y
+       con pista libre. Si no, arranca el ultimo, a casi dos kilometros de la
+       linea y detras de 21 coches, y la sesion no se puede jugar. */
+    startOrder = startOrder.slice().sort((a, b) => (a.isPlayer ? -1 : 0) - (b.isPlayer ? -1 : 0));
+  }
   state.grid = startOrder.map((e, i) => ({ driverId: e.driverId, position: i + 1 }));
 
   /* Distancia de carrera: 20 vueltas en todos los grandes, 8 en el sprint */
@@ -4768,26 +4775,34 @@ function createSession(config) {
      estrategia. En prÃ¡cticas y clasificaciÃ³n se sale siempre con blandos. */
   const defaultTyre = kind === 'feature' || kind === 'sprint' ? 'medium' : 'soft';
   const startTyre = TYRES[config.startTyre] ? config.startTyre : defaultTyre;
-  const spacing = kind === 'fp' ? 90 : 9.5;
-  const lateral = kind === 'fp' ? 0 : 1.9;
+  /* Practicas: los coches salen en tres columnas y bien separados, como en una
+     sesion real. Carrera y clasificacion: parrilla de dos en dos. */
+  const spacing = kind === 'fp' ? 46 : 9.5;
+  const lateral = kind === 'fp' ? 3.4 : 1.9;
 
   state.cars = startOrder.map((entry, i) => {
     const c = makeCarState(track, entry, { grid: i + 1, tyre: startTyre });
     c.gridPosition = i + 1;
     c.rng = rng.fork(`ai-${entry.driverId}`);
     c.strategy = makeStrategy(rng.fork(`strat-${entry.driverId}`), kind, state.laps);
-    /* ColocaciÃ³n en pista */
-    const back = kind === 'fp' ? -(i * spacing) - 40 : -(i * spacing) - 6;
+    /* Colocación en pista */
+    const back = kind === 'fp' ? -(i * spacing) - 150 : -(i * spacing) - 8;
     const s = mod(back, track.length);
     const p = pointAtS(track, s);
-    const lat = kind === 'fp' ? 0 : (i % 2 === 0 ? -lateral : lateral);
+    const lat = kind === 'fp'
+      ? [0, -lateral, lateral, -lateral * 2, lateral * 2][i % 5]
+      : (i % 2 === 0 ? -lateral : lateral);
     c.x = p.x + p.nx * lat;
     c.y = p.y + p.ny * lat;
     c.lateral = lat;
     c.idx = indexAtS(track, s);
     c.s = s;
     c.dist = back;
-    c.lap = 0;
+    /* En carreras la parrilla está detrás de la línea pero la vuelta 1 empieza
+       con la señal. En prácticas y clasificación el primer cruce sí arma el
+       cronómetro: si no, la primera vuelta rápida se gasta como vuelta de
+       salida y el jugador se queda sin ningún tiempo. */
+    c.lap = isRace ? 0 : Math.floor(back / track.length);
     c.qualifyingLap = 0;
     c.bestLapMs = 0;
     c.lastLapMs = 0;
@@ -4924,14 +4939,17 @@ function startPractice(state) {
   for (const c of state.cars) {
     const p = pointAtS(state.track, c.s);
     c.angle = Math.atan2(p.dirY, p.dirX);
-    c.speed = c.isPlayer ? 0 : 42 + c.rng.float(0, 12);
+    /* Todos salen rodando y desparramados: nadie se queda parado en la trazada
+       y el jugador no arranca con 21 coches detrás a 150 km/h */
+    const roll = c.isPlayer ? 34 : 38 + c.rng.float(0, 14);
+    c.speed = roll;
     c.vx = Math.cos(c.angle) * c.speed;
     c.vy = Math.sin(c.angle) * c.speed;
     c.started = true;
     c.lapStartClock = 0;
     c.sectorStart = 0;
   }
-  state.messages.push({ text: 'Libres: no hay lÃ­mite de vueltas. Recopila datos y vuelve al tÃºnel.', kind: 'info' });
+  state.messages.push({ text: 'Libres: no hay límite de vueltas. Suelta el acelerador cuando quieras volver al túnel.', kind: 'info' });
 }
 
 function startQualifying(state) {
@@ -4954,6 +4972,12 @@ function startQualifying(state) {
   for (const c of state.cars) {
     const p = pointAtS(state.track, c.s);
     c.angle = Math.atan2(p.dirY, p.dirX);
+    /* También en clasificación se sale rodando: parado en la parrilla, el
+       jugador solo sufre el tren de coches que le llega detrás */
+    const roll = c.isPlayer ? 30 : 34 + c.rng.float(0, 12);
+    c.speed = roll;
+    c.vx = Math.cos(c.angle) * c.speed;
+    c.vy = Math.sin(c.angle) * c.speed;
     c.started = true;
     c.lapStartClock = 0;
     c.sectorStart = 0;
@@ -7778,39 +7802,74 @@ class TrackView {
     if (state && state.pitWindowOpen) this.drawPitBox(ctx, state);
   }
 
-  /** Franja de escapatoria a ambos lados del asfalto. */
+  /**
+   * Franja de escapatoria a ambos lados del asfalto: grava en las curvas lentas
+   * y asfalto en las rápidas, como en los trazados reales. Se dibuja por
+   * tramos porque el material cambia punto a punto.
+   */
   drawRunoff(ctx, visible) {
     const pts = this.track.points;
-    const bands = [
-      { from: 1.0, to: 6.5, colour: 'rgba(120, 108, 88, .85)' },
-      { from: 6.5, to: 13, colour: 'rgba(30, 48, 32, .9)' },
-    ];
-    for (const band of bands) {
-      for (const side of [-1, 1]) {
+    const HARD = 7.5;
+    const SOFT = 15;
+    const materials = {
+      gravel: 'rgba(150, 132, 98, .9)',
+      asphalt: 'rgba(52, 56, 66, .9)',
+      grass: 'rgba(46, 74, 50, .9)',
+    };
+    for (const side of [-1, 1]) {
+      /* Banda exterior, siempre verde: separa la pista del entorno */
+      this.runoffBand(ctx, visible, pts, side, SOFT, HARD, () => materials.grass);
+      /* Banda interior de escapatoria, por material */
+      let run = null;
+      const flush = () => {
+        if (!run || run.points.length < 2) { run = null; return; }
         ctx.beginPath();
-        let started = false;
-        for (const i of visible) {
-          const p = pts[i];
-          if (!p) continue;
-          const gravel = p.runoff === 'gravel';
-          const w = p.halfWidth + (band.from === 1.0 && gravel ? band.to : band.from);
-          const x = p.x + p.nx * w * side;
-          const y = p.y + p.ny * w * side;
-          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        const ptsOfRun = run.points;
+        for (let k = 0; k < ptsOfRun.length; k++) {
+          const { a, b } = ptsOfRun[k];
+          if (k === 0) ctx.moveTo(a.x, a.y); else ctx.lineTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
         }
-        for (let k = visible.length - 1; k >= 0; k--) {
-          const p = pts[visible[k]];
-          if (!p) continue;
-          const gravel = p.runoff === 'gravel';
-          const w = p.halfWidth + (band.to === 6.5 && gravel ? band.to : band.to);
-          ctx.lineTo(p.x + p.nx * w * side, p.y + p.ny * w * side);
-        }
-        if (!started) continue;
-        ctx.closePath();
-        ctx.fillStyle = band.colour;
-        ctx.fill();
+        ctx.lineWidth = HARD;
+        ctx.strokeStyle = run.colour;
+        ctx.stroke();
+        run = null;
+      };
+      for (const i of visible) {
+        const p = pts[i];
+        const material = p?.runoff || 'grass';
+        if (!p) { flush(); continue; }
+        if (run && run.material !== material) flush();
+        if (!run) run = { material, colour: materials[material] || materials.grass, points: [] };
+        run.points.push({
+          a: { x: p.x + p.nx * HARD * side, y: p.y + p.ny * HARD * side },
+          b: { x: p.x + p.nx * p.halfWidth * side, y: p.y + p.ny * p.halfWidth * side },
+        });
       }
+      flush();
     }
+  }
+
+  /** Banda continua entre dos distancias del borde del asfalto. */
+  runoffBand(ctx, visible, pts, side, from, to, colourFn) {
+    ctx.beginPath();
+    let started = false;
+    for (const i of visible) {
+      const p = pts[i];
+      if (!p) continue;
+      const x = p.x + p.nx * (p.halfWidth + from) * side;
+      const y = p.y + p.ny * (p.halfWidth + from) * side;
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    for (let k = visible.length - 1; k >= 0; k--) {
+      const p = pts[visible[k]];
+      if (!p) continue;
+      ctx.lineTo(p.x + p.nx * (p.halfWidth + to) * side, p.y + p.ny * (p.halfWidth + to) * side);
+    }
+    if (!started) return;
+    ctx.closePath();
+    ctx.fillStyle = colourFn();
+    ctx.fill();
   }
 
   /** Tribunas y gradas a lo largo del trazado, para que la pista no quede vacía. */
@@ -9855,7 +9914,11 @@ async function showSession(shell, { session: sessionDef, round } = {}) {
         title: 'Pausa',
         body: el('div.stack', null, [
           el('div.row.row-tight', null, [
-            el('span.chip', { text: `Vuelta ${session.player.lap}/${session.laps}` }),
+            el('span.chip', {
+              text: session.laps > 0
+                ? `Vuelta ${Math.max(1, session.player.lap)}/${session.laps}`
+                : `Vuelta ${Math.max(1, session.player.lap)} · ${formatTime(session.clock * 1000)} de ${formatTime(session.duration * 1000)}`,
+            }),
             el('span.chip', { text: `P${session.player.position}` }),
             el('span.chip', { text: `Mejor ${formatTime(session.player.bestLapMs)}` }),
           ]),
