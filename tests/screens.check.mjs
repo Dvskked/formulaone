@@ -312,6 +312,37 @@ try {
   fail(`sesión de carrera lanza: ${err.message}`);
 }
 
+/* --- Prácticas y clasificación: se monta, se conduce y se cronometra ------ */
+try {
+  const { showSession, stopSession } = await import('../js/ui/screens/session.js');
+  const { currentRound } = await import('../js/game/career.js');
+  const rd = currentRound(state);
+  for (const type of ['fp', 'quali']) {
+    const def = rd.sessions.find((s) => s.type === type);
+    if (!def) continue;
+    ctx.running = true;
+    await showSession(shell, { session: def, round: rd });
+    if (!shell.body.querySelector('canvas.race-canvas')) fail(`${type}: no monta el lienzo`);
+    const s = ctx.session;
+    if (!s || s.kind !== type) fail(`${type}: la sesión no está montada`);
+    const p = s?.player;
+    if (!p) fail(`${type}: no hay coche del jugador`);
+    else if (p.position !== 1 || p.dist < -300) fail(`${type}: el jugador sale P${p.position} a ${p.dist.toFixed(0)} m, no se puede jugar`);
+    /* Teclado real: la tecla de accelerate tiene que mover el coche */
+    const before = p.dist;
+    window.dispatch('keydown', { code: 'KeyW', preventDefault() {} });
+    await new Promise((r) => setTimeout(r, 1200));
+    window.dispatch('keyup', { code: 'KeyW' });
+    if (p.dist - before < 15) fail(`${type}: la tecla W no mueve el coche (${(p.dist - before).toFixed(0)} m)`);
+    else if (p.onTrack === false) fail(`${type}: el coche se sale de la pista acelerando`);
+    else console.log(`  OK   ${type}: sale P${p.position} a ${p.dist.toFixed(0)} m y avanza ${(p.dist - before).toFixed(0)} m con el teclado`);
+    stopSession();
+  }
+  console.log('  OK   prácticas y clasificación arrancan conducibles');
+} catch (err) {
+  fail(`sesión de tiempo lanza: ${err.message}`);
+}
+
 /* --- Menú de guardado --------------------------------------------------- */
 try {
   const { showSaves } = await import('../js/ui/screens/saves.js');

@@ -1,5 +1,5 @@
 ﻿// Prueba de humo del motor de sesión: practices, Q1/Q2/Q3, parrilla y carrera.
-import { buildTrack } from '../js/game/track.js';
+import { buildTrack, pointAtS, speedProfile, idealLapTime } from '../js/game/track.js';
 import { createSession, updateSession, endSessionNow, formatMs, enterPit, RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS, MISSED_PIT_PENALTY_S } from '../js/game/race.js';
 import { TYRES, tyreLapsLeft } from '../js/game/car.js';
 import { getCircuit } from '../js/data/circuits.js';
@@ -219,6 +219,60 @@ console.log('race-engine.check');
   }
 }
 
+
+/* ── Prácticas y clasificación jugables ── */
+
+/** Piloto automático que sigue la trazada: sirve para comprobar que el jugador
+ *  puede completar y cronometrar una vuelta, no solo arrancar. */
+function lineDriver(track, car) {
+  const look = Math.max(16, Math.min(52, car.speed * 0.9));
+  const target = pointAtS(track, car.s + look);
+  const dx = target.x - car.x;
+  const dy = target.y - car.y;
+  const ahead = Math.cos(car.angle) * dx + Math.sin(car.angle) * dy;
+  const side = Math.cos(car.angle) * dy - Math.sin(car.angle) * dx;
+  const steer = Math.max(-1, Math.min(1, Math.atan2(side, Math.max(8, ahead)) * 2.2));
+  const limit = speedProfile(track, 1);
+  const wanted = (limit[car.idx] || 60) * 0.9;
+  return {
+    steer,
+    throttle: car.speed < wanted ? 1 : 0,
+    brake: car.speed > wanted * 1.08 ? 0.8 : 0,
+    drsPressed: false,
+    pitPressed: false,
+    edges: {},
+  };
+}
+
+for (const kind of ['fp', 'quali']) {
+  const { career, list } = makeField('f1', 33);
+  const round = currentRound(career);
+  const circuit = getCircuit(round.circuitId);
+  const track = buildTrack(circuit, makeRng(33));
+  const state = createSession({ circuit, entryList: list, kind, round, settings: { ...DEFAULT_SETTINGS }, seed: 4 });
+  const p = state.player;
+  check(`${kind}: el jugador sale primero y con pista libre`, p.position === 1 && p.dist > -260, `pos=${p.position} dist=${p.dist.toFixed(0)}`);
+  check(`${kind}: nadie queda parado en la trazada`, state.cars.every((c) => c.speed > 8), `min=${Math.min(...state.cars.map((c) => c.speed)).toFixed(1)}`);
+  check(`${kind}: la vuelta de salida arma el cronómetro`, p.lapArmed === false, `armed=${p.lapArmed}`);
+
+  const dt = 1 / 30;
+  let t = 0;
+  let offTrack = 0;
+  while (t < state.duration && !state.completed) {
+    updateSession(state, dt, lineDriver(track, p));
+    t += dt;
+    if (p.onTrack === false) offTrack += dt;
+  }
+  check(`${kind}: el jugador cronometra su primera vuelta rápida`, p.bestLapMs > 0, `best=${p.bestLapMs}`);
+  const ideal = idealLapTime(track, 1);
+  check(`${kind}: el tiempo es creíble`, p.bestLapMs > ideal * 0.9 && p.bestLapMs < 400000, `best=${p.bestLapMs} ideal=${ideal.toFixed(0)}`);
+  check(`${kind}: se puede conducir sin salirse constantemente`, offTrack < t * 0.5, `fuera=${offTrack.toFixed(0)}s de ${t.toFixed(0)}s`);
+  if (kind === 'quali') {
+    const row = state.segmentsDone[0].rows.find((r) => r.driverId === p.driverId);
+    check('quali: el jugador aparece en la tabla de Q1', Boolean(row), `filas=${state.segmentsDone[0].rows.length}`);
+  }
+  console.log(`       ${kind}: ${formatMs(p.bestLapMs)} · ideal ${(ideal / 1000).toFixed(2)} s · ${p.lap} vueltas`);
+}
 
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} comprobación(es) fallida(s)`);
 process.exit(failures === 0 ? 0 : 1);
