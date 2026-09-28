@@ -7,15 +7,60 @@
 import { clamp, lerp, sign, mod, TAU } from '../core/util.js';
 import { inDrsZone, indexAtS } from './track.js';
 
+/* Neumáticos de seco. La degradación se mide en VUELTAS recorridas: cada
+   compuesto tiene una vida útil (`life`) y, al acercarse a ella, pierde
+   rendimiento de golpe. De momento no hay gomas de lluvia ni intermedias. */
 export const TYRES = {
-  soft: { id: 'soft', name: 'Blando', color: '#e8112d', grip: 1.055, wear: 1.75, warm: 'alta' },
-  medium: { id: 'medium', name: 'Medio', color: '#f5d000', grip: 1.0, wear: 1.0, warm: 'media' },
-  hard: { id: 'hard', name: 'Duro', color: '#e8e8ea', grip: 0.962, wear: 0.62, warm: 'baja' },
-  intermediate: { id: 'intermediate', name: 'Intermedio', color: '#39b54a', grip: 1.005, wear: 0.9, warm: 'media' },
-  wet: { id: 'wet', name: 'Llanta', color: '#1560bd', grip: 0.945, wear: 0.8, warm: 'alta' },
+  soft: { id: 'soft', name: 'Blando', code: 'C5', color: '#e8112d', life: 7, pace: 1.034, grip: 1.055, falloff: 0.17, warm: 'alta' },
+  medium: { id: 'medium', name: 'Medio', code: 'C3', color: '#f5d000', life: 12, pace: 1, grip: 1, falloff: 0.1, warm: 'media' },
+  hard: { id: 'hard', name: 'Duro', code: 'C2', color: '#e6e8ee', life: 16, pace: 0.966, grip: 0.962, falloff: 0.05, warm: 'baja' },
 };
 
-export const TYRE_ORDER = ['soft', 'medium', 'hard', 'intermediate', 'wet'];
+export const TYRE_ORDER = ['soft', 'medium', 'hard'];
+
+/** Suaviza de 0 a 1 entre dos umbrales. */
+function smoothstep(from, to, x) {
+  const t = clamp((x - from) / (to - from), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/** Cuánto ha caido ya el compuesto por el desgaste (0 = nuevo, 1 = en su fin). */
+export function tyreCliff(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return smoothstep(0.55, 1, clamp(wear, 0, 1)) * t.falloff;
+}
+
+/** Factor de velocidad punta que permite el compuesto con ese desgaste. */
+export function tyrePace(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return t.pace * (1 - tyreCliff(tyreId, wear));
+}
+
+/** Factor de agarre lateral con ese desgaste. */
+export function tyreGrip(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return t.grip * (1 - tyreCliff(tyreId, wear) * 0.7);
+}
+
+/** Vueltas de vida que le quedan al compuesto. */
+export function tyreLapsLeft(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return Math.max(0, t.life * (1 - clamp(wear, 0, 1)));
+}
+
+/**
+ * Acumula la distancia rodada y recalcula el desgaste 0..1 del compuesto.
+ * @param {object} c estado del coche
+ * @param {number} metres metros recorridos en este paso
+ * @param {number} lapLength longitud del circuito en metros
+ */
+export function ageTyre(c, metres, lapLength) {
+  c.lapDist = (c.lapDist || 0) + metres;
+  const life = (TYRES[c.tyre] || TYRES.medium).life * (lapLength || 5000);
+  c.tyreWear = clamp(c.lapDist / life, 0, 1.6);
+  c.tyreAge = c.lapDist / (lapLength || 5000);
+  return c.tyreWear;
+}
 
 /** Regulación 2026: gestión de energía con despliegue siempre disponible. */
 export const PIT_SPEED_KMH = 80;
@@ -72,6 +117,7 @@ export function makeCarState(track, entry, options = {}) {
     tyreAge: 0,
     tyreWear: 0,
     tyreTemp: 0.35,
+    lapDist: 0,
 
     /* daños y estado */
     damage: 0,
@@ -169,11 +215,11 @@ export function stepCar(c, input, track, proj, env = {}) {
   const assists = env.assists || {};
   const weather = env.weather || {};
   const surf = surfaceAt(proj, weather);
-  const tyre = TYRES[c.tyre];
 
   const v = Math.max(0, c.speed);
   const power = powerFactor(c.car) * (0.94 + (c.car.aero - 78) * 0.0012);
-  const topSpeed = maxSpeed(c.car, c.drsOpen) * (weather.wet ? 0.94 : 1);
+  const pace = tyrePace(c.tyre, c.tyreWear);
+  const topSpeed = maxSpeed(c.car, c.drsOpen) * (weather.wet ? 0.94 : 1) * pace;
 
   /* ── Empuje longitudinal ── */
   let accel = 0;
@@ -210,7 +256,7 @@ export function stepCar(c, input, track, proj, env = {}) {
   let vLong = c.vx * fx + c.vy * fy;
   let vLat = c.vx * rx + c.vy * ry;
 
-  const grip = gripFactor(c.car) * tyre.grip * surf.grip * (c.damage > 0.4 ? 0.92 : 1);
+  const grip = gripFactor(c.car) * tyreGrip(c.tyre, c.tyreWear) * surf.grip * (c.damage > 0.4 ? 0.92 : 1);
   const latBudget = 34 * grip * dt;
   const longUse = clamp(Math.abs(throttle - brake) * 0.7 + brake * 0.4, 0, 1);
   const latCap = latBudget * (1 - longUse * 0.32);
@@ -229,7 +275,7 @@ export function stepCar(c, input, track, proj, env = {}) {
   c.gear = gear;
   c.rpm = clamp(0.18 + (newSpeed / topSpeed) * 0.82, 0, 1);
   c.tyreTemp = clamp(lerp(c.tyreTemp, 0.4 + longUse * 0.6, dt * 0.6), 0, 1);
-  c.tyreWear = clamp(c.tyreWear + dt * tyre.wear * 0.0075 * (0.4 + longUse), 0, 1);
+  ageTyre(c, newSpeed * dt, track.length);
 
   /* ── ERS ── */
   if (useErs) c.ers = clamp(c.ers - ERS_DEPLOY_RATE * dt, 0, ERS_CAPACITY);
@@ -243,7 +289,7 @@ export function stepCar(c, input, track, proj, env = {}) {
   /* ── Desgaste y fiabilidad ── */
   if (surf.grip < 0.85) {
     c.offTrackTime += dt;
-    c.tyreWear = clamp(c.tyreWear + dt * 0.02, 0, 1);
+    c.tyreWear = clamp(c.tyreWear + dt * 0.012, 0, 1.6);
     if (c.offTrackTime > 0.9) c.damage = clamp(c.damage + dt * 0.07, 0, 1);
   } else {
     c.offTrackTime = Math.max(0, c.offTrackTime - dt * 2);
@@ -264,9 +310,9 @@ export function stepAi(c, ctx) {
   const { dt, track, weather = {} } = ctx;
   if (c.retired) return;
   const m = track.points;
-  const tyre = TYRES[c.tyre];
   const surfaceGrip = (weather.wet ? 0.93 : 1) * (c.onTrack ? 1 : 0.72);
-  const grip = gripFactor(c.car) * tyre.grip * surfaceGrip;
+  const grip = gripFactor(c.car) * tyreGrip(c.tyre, c.tyreWear) * surfaceGrip;
+  const pace = tyrePace(c.tyre, c.tyreWear);
 
   /* Velocidad objetivo en función de la curva que viene */
   const ahead = 26;
@@ -274,8 +320,8 @@ export function stepAi(c, ctx) {
   const i2 = (c.idx + Math.round(ahead / 4.2)) % m.length;
   const k = Math.max(1e-5, Math.abs(m[i2].curv));
   const latAccel = 17.6 * grip * (0.86 + c.skill / 480);
-  const vCurve = clamp(Math.sqrt(latAccel / k), 12, maxSpeed(c.car, false));
-  const vTop = maxSpeed(c.car, c.drsOpen) * 0.985;
+  const vCurve = clamp(Math.sqrt(latAccel / k), 12, maxSpeed(c.car, false) * pace);
+  const vTop = maxSpeed(c.car, c.drsOpen) * 0.985 * pace;
 
   /* Frenada por la distancia a la próxima frenada */
   let target = Math.min(vTop, vCurve);
@@ -294,8 +340,7 @@ export function stepAi(c, ctx) {
   /* Coche de seguridad: ritmo de fila india */
   if (ctx.scActive) target = Math.min(target, c.scTarget || 24);
 
-  const accel = target > c.speed ? 12.5 * (c.car.power / 90) : -30 * grip;
-  c.speed = Math.max(6, c.speed + accel * dt);
+  const accel = target > c.speed ? 12.5 * (c.car.power / 90) : -30 * grip;  c.speed = Math.max(6, c.speed + accel * dt);
 
   /* Línea objetivo: trazada + anticipación de la frenada + evitación */
   const li = ctx.line[i1] || m[i1];
@@ -332,17 +377,17 @@ export function stepAi(c, ctx) {
   c.kerb = Math.abs(lat) > p.halfWidth - 0.9 && Math.abs(lat) < p.halfWidth + 1.4;
   if (!c.onTrack) {
     c.offTrackTime += dt;
-    c.tyreWear = clamp(c.tyreWear + dt * 0.01, 0, 1);
+    c.tyreWear = clamp(c.tyreWear + dt * 0.006, 0, 1.6);
   } else {
     c.offTrackTime = Math.max(0, c.offTrackTime - dt * 2);
   }
 
   /* Marcha, ERS, neumáticos */
-  c.gear = clamp(Math.ceil((c.speed / maxSpeed(c.car, false)) * 8), 1, 8);
+  c.gear = clamp(Math.ceil((c.speed / (maxSpeed(c.car, false) * pace)) * 8), 1, 8);
   c.rpm = clamp(0.18 + (c.speed / vTop) * 0.82, 0, 1);
   const useErs = c.ers > 2 && c.speed < vTop * 0.9;
   c.ers = clamp(c.ers + (useErs ? -ERS_DEPLOY_RATE : ERS_RECHARGE_RATE) * dt, 0, ERS_CAPACITY);
-  c.tyreWear = clamp(c.tyreWear + dt * tyre.wear * 0.0055, 0, 1);
+  ageTyre(c, c.speed * dt, track.length);
   c.tyreTemp = clamp(lerp(c.tyreTemp, 0.75, dt * 0.5), 0, 1);
   c.drsZone = !ctx.scActive && inDrsZone(track, c.idx);
   c.drsAvailable = Boolean(c.drsZone);

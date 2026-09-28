@@ -410,15 +410,20 @@ function assemble(def, radiusFactor, spacing = 4.2) {
   }
   smoothField(pts, 'curv', 5, 2);
 
-  const baseWidth = def.width || 13.5;
+  /* Trazado ancho: 18-20 m de asfalto, como en los trazados actuales. Las
+     zonas lentas se ensanchan un poco más y las rápidas se estrechan menos. */
+  const baseWidth = def.width || 19;
   for (let i = 0; i < m; i++) {
     const p = pts[i];
     const radius = Math.max(25, 1 / Math.max(1e-5, Math.abs(p.curv)));
     p.radius = radius;
     const fast = clamp((radius - 90) / 700, 0, 1);
     const slow = clamp((190 - radius) / 160, 0, 1);
-    p.halfWidth = baseWidth * (0.5 - 0.05 * fast + 0.12 * slow);
-    p.kerb = radius < 145 ? 1 : 0;
+    p.halfWidth = baseWidth * (0.5 - 0.03 * fast + 0.1 * slow);
+    p.kerb = radius < 150 ? 1 : 0;
+    /* Zona de escapatoria: hay grava en las curvas lentas y asfalto liso en
+       el resto, para que salirse no sea siempre lo mismo */
+    p.runoff = slow > 0.35 ? 'gravel' : fast > 0.5 ? 'asphalt' : 'grass';
   }
   smoothField(pts, 'halfWidth', 6, 2);
 

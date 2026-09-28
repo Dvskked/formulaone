@@ -1,12 +1,25 @@
-// Motor de sesión:Practicas, clasificación (Q1/Q2/Q3) y carrera.
-// Gestiona parrilla, semáforo, IA, paradas, banderas,cronometraje y resultados.
+﻿// Motor de sesiÃ³n:Practicas, clasificaciÃ³n (Q1/Q2/Q3) y carrera.
+// Gestiona parrilla, semÃ¡foro, IA, paradas, banderas,cronometraje y resultados.
 
 import { makeRng } from '../core/rng.js';
 import { buildTrack, projectCar, indexAtS, pointAtS, speedProfile, minimap } from './track.js';
-import { makeCarState, stepCar, stepAi, applyLaunch, maxSpeed, TYRES, ERS_CAPACITY } from './car.js';
+import { makeCarState, stepCar, stepAi, applyLaunch, maxSpeed, TYRES, tyreLapsLeft, ERS_CAPACITY } from './car.js';
 import { clamp, mod, lerp, dist as dist2d } from '../core/util.js';
 
-/* ───────────────────── Duraciones jugables (segundos) ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Reglas de carrera â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+/** Toda carrera es de 20 vueltas, en F1 y en F2. */
+export const RACE_LAPS = 20;
+/** El sprint es corto: 8 vueltas. */
+export const SPRINT_LAPS = 8;
+/** Una sola parada en boxes, es obligatoria. */
+export const MAX_PIT_STOPS = 1;
+/** Segundos de penalizaciÃ³n por no parar. */
+export const MISSED_PIT_PENALTY_S = 5;
+/** NeumÃ¡ticos disponibles al salir de boxes. */
+export const START_TYRES = ['soft', 'medium', 'hard'];
+
+/** Duraciones jugables (segundos) */
 
 export const DURATIONS = {
   fp: 240,
@@ -15,34 +28,22 @@ export const DURATIONS = {
   sprint: 165,
 };
 
-export const LENGTH_MODES = {
-  corta: 0.12,
-  media: 0.22,
-  larga: 0.4,
-  completa: 1,
-};
-export const LENGTH_LABELS = {
-  corta: 'Corta (12 %)',
-  media: 'Media (22 %)',
-  larga: 'Larga (40 %)',
-  completa: 'Completa (100 %)',
-};
-
-/** Pilotos que pasan de cada segmento de clasificación. */
+/** Pilotos que pasan de cada segmento de clasificaciÃ³n. */
 export const QUALI_CUTOFFS = [18, 15, 10];
 
-/* ───────────────────── Construcción ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ ConstrucciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
- * Crea una sesión jugable.
+ * Crea una sesiÃ³n jugable.
  * @param {object} config
- * @param {object} config.circuit definición de circuito (data/circuits.js)
+ * @param {object} config.circuit definiciÃ³n de circuito (data/circuits.js)
  * @param {Array} config.entryList participantes
  * @param {string} config.kind 'fp' | 'quali' | 'sprint' | 'feature'
  * @param {object} config.round ronda del calendario
  * @param {object} config.settings ajustes del juego
  * @param {number} [config.seed]
- * @param {object} [config.grid] posición de salida ya conocida (carrera)
+ * @param {string} [config.startTyre] compuesto elegido por el jugador
+ * @param {object} [config.grid] posiciÃ³n de salida ya conocida (carrera)
  * @param {Array} [config.qualifyingOrder] orden de la Q anterior
  */
 export function createSession(config) {
@@ -50,7 +51,8 @@ export function createSession(config) {
   const track = buildTrack(circuit);
   const rng = makeRng(`${seed}|${kind}|${round.round}`);
   const series = round.series;
-  const weather = makeWeather(circuit, series, rng);
+  const weather = makeWeather(circuit);
+  const isRace = kind === 'feature' || kind === 'sprint';
 
   const state = {
     kind,
@@ -77,16 +79,20 @@ export function createSession(config) {
     results: null,
     lights: 0,
     lightTimer: 0,
+    lightOffAt: 0,
     safetyCar: { active: false, remaining: 0, queue: [] },
     messages: [],
     fastestLap: { ms: 0, driverId: null },
     flags: { yellow: false, sc: false },
     event: null,
     pitWindowOpen: false,
+    pitDistance: Infinity,
+    playerPenaltyS: 0,
+    maxStops: isRace ? MAX_PIT_STOPS : 2,
     completed: false,
   };
 
-  /* Parrilla: si no hay clasificación previa, se ordena por skill descendente */
+  /* Parrilla: si no hay clasificaciÃ³n previa, se ordena por skill descendente */
   let startOrder = entryList.slice();
   if (grid) {
     const pos = new Map(grid.map((e, i) => [e.driverId, i + 1]));
@@ -98,8 +104,15 @@ export function createSession(config) {
   }
   state.grid = startOrder.map((e, i) => ({ driverId: e.driverId, position: i + 1 }));
 
-  /* Neumáticos iniciales según el tipo de sesión */
-  const startTyre = kind === 'quali' ? 'soft' : kind === 'fp' ? 'soft' : 'medium';
+  /* Distancia de carrera: 20 vueltas en todos los grandes, 8 en el sprint */
+  const laps = kind === 'sprint' ? SPRINT_LAPS : kind === 'feature' ? RACE_LAPS : 0;
+  state.laps = laps;
+  state.fullLaps = laps;
+
+  /* NeumÃ¡ticos iniciales: el jugador elige en la pantalla previa, la IA con su
+     estrategia. En prÃ¡cticas y clasificaciÃ³n se sale siempre con blandos. */
+  const defaultTyre = kind === 'feature' || kind === 'sprint' ? 'medium' : 'soft';
+  const startTyre = TYRES[config.startTyre] ? config.startTyre : defaultTyre;
   const spacing = kind === 'fp' ? 90 : 9.5;
   const lateral = kind === 'fp' ? 0 : 1.9;
 
@@ -107,8 +120,8 @@ export function createSession(config) {
     const c = makeCarState(track, entry, { grid: i + 1, tyre: startTyre });
     c.gridPosition = i + 1;
     c.rng = rng.fork(`ai-${entry.driverId}`);
-    c.strategy = makeStrategy(rng.fork(`strat-${entry.driverId}`), kind, track);
-    /* Colocación en pista */
+    c.strategy = makeStrategy(rng.fork(`strat-${entry.driverId}`), kind, state.laps);
+    /* ColocaciÃ³n en pista */
     const back = kind === 'fp' ? -(i * spacing) - 40 : -(i * spacing) - 6;
     const s = mod(back, track.length);
     const p = pointAtS(track, s);
@@ -131,6 +144,8 @@ export function createSession(config) {
     c.drsAllowed = false;
     c.jumpStart = false;
     c.pitDone = 0;
+    c.pitStops = 0;
+    c.penaltyMs = 0;
     c.pitTimerLeft = 0;
     c.pitting = false;
     c.finished = false;
@@ -143,27 +158,33 @@ export function createSession(config) {
     c.qualiHistory = [];
     c.reachedSegment = -1;
     c.eliminatedIn = -1;
-    if (!entry.isPlayer) c.skill = entry.skill;
+    if (!entry.isPlayer) {
+      c.skill = entry.skill;
+      if (isRace) c.tyre = c.strategy.tyre;
+    }
     return c;
   });
 
   state.player = state.cars.find((c) => c.isPlayer) || null;
   if (state.player) {
+    const pitLap = plannedPitLap(state.laps, startTyre);
     state.player.tyre = startTyre;
     state.player.skill = state.player.skill || 78;
+    state.player.strategy = {
+      stops: state.maxStops,
+      tyre: startTyre,
+      second: secondTyreFor(state.laps - pitLap),
+      pitLap,
+    };
   }
 
-  /* Distancia de carrera según el modo de longitud elegido */
-  const mode = LENGTH_MODES[settings?.raceLength] ?? LENGTH_MODES.corta;
-  const fullLaps = track.laps;
-  state.laps = Math.max(3, Math.round(fullLaps * (kind === 'sprint' ? mode * 0.7 : mode)));
-  state.fullLaps = fullLaps;
-  state.totalDistance = state.laps * track.length;
-  state.raceDistance = state.totalDistance / 1000;
+  /* Distancia de carrera: 20 vueltas en todos los grandes, 8 en el sprint */
+  state.totalDistance = laps > 0 ? laps * track.length : Infinity;
+  state.raceDistance = laps > 0 ? (laps * track.length) / 1000 : 0;
   state.entries = entryList;
   state.entryFor = (id) => entryList.find((e) => e.driverId === id) || null;
 
-  /* Duración de la sesión */
+  /* DuraciÃ³n de la sesiÃ³n */
   if (kind === 'fp') state.duration = DURATIONS.fp;
   else if (kind === 'quali') state.duration = DURATIONS.quali[0];
   else if (kind === 'sprintQuali') state.duration = DURATIONS.sprintQualiSegment;
@@ -182,32 +203,65 @@ export function createSession(config) {
   return state;
 }
 
-function makeWeather(circuit, series, rng) {
-  const base = circuit.weather || 'dry';
-  const wet = base === 'wet' || (base === 'variable' && rng.chance(series === 'f2' ? 0.18 : 0.3));
-  const air = Math.round(lerp(wet ? 16 : 24, wet ? 14 : 32, rng.next()));
+/** Sin gomas de lluvia por ahora: todas las sesiones se disputan en seco. */
+function makeWeather(circuit) {
+  const air = Math.round(lerp(24, 32, hash01(circuit.id || 'x') * 0.6));
   return {
-    kind: wet ? 'wet' : 'dry',
-    wet,
-    rain: wet ? clamp(0.35 + rng.next() * 0.5, 0.3, 0.9) : 0,
+    kind: 'dry',
+    wet: false,
+    rain: 0,
     air,
-    track: Math.round(air + (wet ? 2 : 8)),
-    label: wet ? 'Lluvia' : 'Seco',
+    track: Math.round(air + 8),
+    label: 'Seco',
   };
 }
 
-function makeStrategy(rng, kind, track) {
-  if (kind === 'quali' || kind === 'fp' || kind === 'sprintQuali') {
-    return { stops: 0, tyre: 'soft', second: null, pitLap: 0 };
+/** Semilla estable a partir de un texto, para climas reproducibles. */
+function hash01(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  const stops = track.laps > 40 ? (rng.chance(0.65) ? 1 : 2) : 1;
-  const first = rng.weighted(['soft', 'medium', 'hard'], (t) => (t === 'medium' ? 5 : t === 'soft' ? 3 : 2));
-  const pool = first === 'soft' ? ['medium', 'hard'] : first === 'medium' ? ['soft', 'hard'] : ['medium'];
-  const second = stops > 1 ? rng.pick(pool) : rng.pick(pool);
-  return { stops, tyre: first, second, pitLap: 0, planned: false };
+  return ((h >>> 0) % 1000) / 1000;
 }
 
-/* ───────────────────── Arranque de cada tipo ───────────────────── */
+/** Vuelta en la que la IA tiene previsto entrar a boxes. */
+function plannedPitLap(laps, firstTyre) {
+  if (!laps) return 0;
+  const life = TYRES[firstTyre].life;
+  return clamp(Math.round(laps * 0.45), 2, Math.max(2, Math.min(laps - 3, life)));
+}
+
+/**
+ * Compuesto con el que se sale tras la Ãºnica parada obligatoria: el mÃ¡s rÃ¡pido
+ * que aguante las vueltas que quedan hasta meta.
+ */
+function secondTyreFor(remainingLaps = 0) {
+  const need = Math.max(0, remainingLaps);
+  if (need <= TYRES.soft.life) return 'soft';
+  if (need <= TYRES.medium.life) return 'medium';
+  return 'hard';
+}
+
+/**
+ * Estrategia de la IA: una sola parada, y el compuesto inicial tiene que llegar
+ * hasta esa vuelta sin romperse.
+ */
+function makeStrategy(rng, kind, laps) {
+  if (kind !== 'feature' && kind !== 'sprint') {
+    return { stops: 0, tyre: 'soft', second: null, pitLap: 0 };
+  }
+  const planned = clamp(Math.round(laps * 0.45), 2, Math.max(2, laps - 3));
+  /* El primer stint no puede superar la vida del compuesto */
+  const pool = START_TYRES.filter((t) => TYRES[t].life >= planned - 1);
+  const options = pool.length ? pool : ['medium'];
+  const first = rng.weighted(options, (t) => (t === 'medium' ? 6 : t === 'hard' ? 4 : 2));
+  const pitLap = clamp(planned, 2, Math.max(2, Math.min(laps - 3, TYRES[first].life)));
+  return { stops: 1, tyre: first, second: secondTyreFor(laps - pitLap), pitLap };
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Arranque de cada tipo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function startPractice(state) {
   state.phase = 'running';
@@ -222,7 +276,7 @@ function startPractice(state) {
     c.lapStartClock = 0;
     c.sectorStart = 0;
   }
-  state.messages.push({ text: 'Libres: no hay límite de vueltas. Recopila datos y vuelve al túnel.', kind: 'info' });
+  state.messages.push({ text: 'Libres: no hay lÃ­mite de vueltas. Recopila datos y vuelve al tÃºnel.', kind: 'info' });
 }
 
 function startQualifying(state) {
@@ -256,7 +310,9 @@ function startQualifying(state) {
 function startRace(state) {
   state.phase = 'countdown';
   state.lights = 0;
-  state.lightTimer = 2.2;
+  /* Las cinco luces rojas se encienden una a una: cuando se apagan, todos salen */
+  state.lightTimer = 3.2;
+  state.lightOffAt = 0;
   state.clock = 0;
   const rng = state.rng;
   for (const c of state.cars) {
@@ -270,16 +326,20 @@ function startRace(state) {
     c.sector = 1;
     c.reactionRoll = rng.next();
   }
-  state.messages.push({ text: `Semáforo de ${state.cars.length} coches. A fondo en el último.`, kind: 'start' });
+  const tyre = TYRES[state.player?.tyre || 'medium'];
+  state.messages.push({
+    text: `Parrilla: ${state.cars.length} coches, ${state.laps} vueltas y una parada obligatoria. NeumÃ¡tico ${tyre.name}.`,
+    kind: 'start',
+  });
 }
 
-/* ───────────────────── Bucle principal ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Bucle principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
- * Avanza la sesión.
+ * Avanza la sesiÃ³n.
  * @param {object} state
  * @param {number} dt segundos reales
- * @param {object|null} input estado de conducción del jugador
+ * @param {object|null} input estado de conducciÃ³n del jugador
  */
 export function updateSession(state, dt, input) {
   if (state.completed) return;
@@ -302,17 +362,22 @@ export function updateSession(state, dt, input) {
 
 function tickCountdown(state, dt) {
   state.lightTimer -= dt;
-  if (state.lightTimer <= 0) {
-    state.lights = Math.min(5, state.lights + 1);
-    state.lightTimer = state.lights < 5 ? 0.85 + state.rng.float(0, 0.5) : 0.9;
-    if (state.lights >= 5) {
-      /* Cinco luces y se apagan */
-      state.phase = 'green';
-      state.greenAt = state.clock;
-      state.greenTimer = state.rng.float(0.7, 1.5);
-      state.lights = 0;
-    }
+  if (state.lightTimer > 0) return;
+  if (state.lights < 5) {
+    state.lights += 1;
+    /* Entre luz y luz hay algo menos de un segundo, como en la FIA */
+    state.lightTimer = 0.75 + state.rng.float(0, 0.45);
+    if (state.lights === 5) state.lightTimer = 1.1 + state.rng.float(0, 0.9);
+    return;
   }
+  /* Las cinco estÃ¡n encendidas: se apagan todas y la carrera sale */
+  state.phase = 'green';
+  state.greenAt = state.clock;
+  state.greenTimer = state.rng.float(0.7, 1.5);
+  state.lights = 0;
+  state.lightOffAt = state.clock;
+  state.startedAt = state.clock;
+  state.messages.push({ text: 'Â¡SemÃ¡foro verde! Todos fuera.', kind: 'green' });
 }
 
 function tickCars(state, dt, input, isRace) {
@@ -352,7 +417,7 @@ function tickCars(state, dt, input, isRace) {
         car.lapStartClock = state.clock;
         car.sectorStart = state.clock;
         state.messages.push({
-          text: wasJump ? 'Salida anticipada: penalización de la FIA.' : 'Semáforo verde, adelante.',
+          text: wasJump ? 'Salida anticipada: penalizaciÃ³n de la FIA.' : 'SemÃ¡foro verde, adelante.',
           kind: wasJump ? 'penalty' : 'green',
         });
       }
@@ -388,7 +453,7 @@ function tickCars(state, dt, input, isRace) {
       if (!car.started) {
         const good = car.reactionRoll < 0.22 + car.skill / 430;
         /* La ventana de arranque se mide desde el verde, no por fase: si el
-           semáforo ya pasó a verde-perdido, quien reaccionó tarde aún sale */
+           semÃ¡foro ya pasÃ³ a verde-perdido, quien reaccionÃ³ tarde aÃºn sale */
         const elapsed = state.greenAt == null ? 0 : state.clock - state.greenAt;
         if (elapsed > 0 && (good || elapsed > 1.5)) {
           applyLaunch(car, track, good ? 0.9 : 0.35, car.rng);
@@ -410,7 +475,7 @@ function tickCars(state, dt, input, isRace) {
   }
 }
 
-/** Referencias para que la IA se desvíe y defienda. */
+/** Referencias para que la IA se desvÃ­e y defienda. */
 function buildAiRefs(state) {
   const refs = new Map();
   const live = state.cars.filter((c) => !c.retired && !c.finished && c.started);
@@ -421,7 +486,7 @@ function buildAiRefs(state) {
     for (const o of live) {
       if (o === c || o.retired) continue;
       const gap = c.dist - o.dist;
-      /* Solo estorban los coches que están delante y en la misma trazada */
+      /* Solo estorban los coches que estÃ¡n delante y en la misma trazada */
       const lat = Math.abs(c.lateral - o.lateral);
       if (gap > 0 && gap < 30 && lat < 3.4) {
         found = true;
@@ -437,7 +502,7 @@ function buildAiRefs(state) {
   return refs;
 }
 
-/* Un monoplaza mide unos 2 m de ancho: dos coches en fila no están tocándose */
+/* Un monoplaza mide unos 2 m de ancho: dos coches en fila no estÃ¡n tocÃ¡ndose */
 const CAR_CONTACT = 2.6;
 
 /** Contacts between cars: lateral push, no violent crashes. */
@@ -456,7 +521,7 @@ function collideWithField(state, car) {
       other.x -= nx * push * 0.7;
       other.y -= ny * push * 0.7;
     }
-    /* Transfer of speed: el que viene por detrás pierde, y solo en la medida
+    /* Transfer of speed: el que viene por detrÃ¡s pierde, y solo en la medida
        del solape, para que un tren de coches no frene a todos cada fotograma */
     const closing = car.speed - other.speed;
     if (closing > 3) {
@@ -471,11 +536,11 @@ function collideWithField(state, car) {
   }
 }
 
-/* ───────────────────── Progreso: vueltas, sectores, banderas ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Progreso: vueltas, sectores, banderas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function tickSessionProgress(state, dt) {
-  /* Solo las sesiones de clasificación se cortan por tiempo: las carreras y los
-     sprints terminan cuando el líder cruza la meta (véase finishRacers) */
+  /* Solo las sesiones de clasificaciÃ³n se cortan por tiempo: las carreras y los
+     sprints terminan cuando el lÃ­der cruza la meta (vÃ©ase finishRacers) */
   const isQuali = state.kind === 'quali' || state.kind === 'sprintQuali';
   if (state.phase !== 'running') return;
 
@@ -592,6 +657,7 @@ function closeQualifyingSegment(state) {
 function tickRaceProgress(state, dt) {
   const { track } = state;
   if (state.phase === 'formation' || state.phase === 'countdown') return;
+  pitAdvice(state);
 
   for (const c of state.cars) {
     if (c.retired) continue;
@@ -611,8 +677,9 @@ function tickRaceProgress(state, dt) {
       c.sector = 1;
       if (c.isPlayer) {
         const total = state.laps;
+        const left = tyreLapsLeft(c.tyre, c.tyreWear);
         state.messages.push({
-          text: `Vuelta ${c.lap}/${total} · ${formatMs(lapMs)}${c.lap === 1 ? ' (vuelta rápida)' : ''}`,
+          text: `Vuelta ${c.lap}/${total} Â· ${formatMs(lapMs)} Â· ${TYRES[c.tyre].name} (${left.toFixed(1)} vueltas)${c.lap === 1 ? ' (vuelta rÃ¡pida)' : ''}`,
           kind: c.bestLapMs === lapMs ? 'good' : 'info',
         });
         if (state.safetyCar.active) state.messages.push({ text: 'Cierre del coche de seguridad. Acelera.', kind: 'sc' });
@@ -626,9 +693,20 @@ function tickRaceProgress(state, dt) {
       c.finished = true;
       c.finishTime = state.clock;
       c.classified = c.position;
+    /* La parada es obligatoria: el que cruza sin parar pierde cinco segundos */
+    if (c.pitStops < state.maxStops) {
+      c.penaltyMs = MISSED_PIT_PENALTY_S * 1000;
+      c.penaltyAdded = true;
       if (c.isPlayer) {
-        state.messages.push({ text: 'Bandera a cuadros. Entra en boxes y termina la vuelta lenta.', kind: 'finish' });
+        state.playerPenaltyS = MISSED_PIT_PENALTY_S;
+        state.messages.push({
+          text: `Bandera a cuadros sin parar: +${MISSED_PIT_PENALTY_S} s de penalizaciÃ³n en la clasificaciÃ³n.`,
+          kind: 'penalty',
+        });
       }
+    } else if (c.isPlayer) {
+      state.messages.push({ text: 'Bandera a cuadros: entras en boxes y terminas la vuelta lenta.', kind: 'finish' });
+    }
     }
 
     /* IA: una vez finishes, circulates at slower pace */
@@ -656,9 +734,12 @@ function tickRaceProgress(state, dt) {
 
 function aiPitLogic(state, c) {
   const st = c.strategy;
+  /* El jugador entra en boxes cuando pulsa P, nunca automÃ¡ticamente */
+  if (c.isPlayer) return;
   if (!st || st.stops === 0 || c.retired || c.finished) return;
-  const plannedLap = Math.round(state.laps * (0.42 + (c.skill - 70) / 220));
-  const lap = c.lap;
+  const plannedLap = st.pitLap || Math.round(state.laps * 0.45);
+  /* Ajuste por Conductividad: los coches rÃ¡pidos entran algo antes */
+  const lap = c.lap + (c.skill > 84 ? 0 : c.skill < 74 ? 1 : 0);
   if (lap >= plannedLap && c.pitDone < st.stops && c.dist > trackLapDistance(state)) {
     enterPit(state, c, true);
   }
@@ -668,14 +749,38 @@ function trackLapDistance(state) {
   return state.track.length * 0.4;
 }
 
+/** Avisa al jugador de la parada obligatoria y de la vida que le queda. */
+function pitAdvice(state) {
+  const p = state.player;
+  if (!p || p.retired || p.finished || state.kind !== 'feature' && state.kind !== 'sprint') return;
+  if (p.pitStops >= state.maxStops) {
+    if (p.pitAdvice !== 'done') {
+      p.pitAdvice = 'done';
+      state.messages.push({ text: 'Parada hecha. A la vuelta con el compound nuevo.', kind: 'pit' });
+    }
+    return;
+  }
+  const left = tyreLapsLeft(p.tyre, p.tyreWear);
+  const remaining = Math.max(0, state.laps - p.lap);
+  if (left <= 2.2 && remaining > 1) {
+    if (p.pitAdvice !== 'now') {
+      p.pitAdvice = 'now';
+      state.messages.push({ text: `Â¡NeumÃ¡tico al lÃ­mite! Entra en boxes (te quedan ${left.toFixed(1)} vueltas de vida).`, kind: 'pit' });
+    }
+  } else if (remaining <= 6 && p.pitAdvice !== 'late') {
+    p.pitAdvice = 'late';
+    state.messages.push({ text: `Quedan ${remaining} vueltas y aÃºn no has parado: penalizaciÃ³n de ${MISSED_PIT_PENALTY_S} s.`, kind: 'penalty' });
+  }
+}
+
 function maybeMechanical(state, c) {
   if (c.retired || c.finished) return;
   const base = (100 - c.car.reliability) / 100;
   const risk = base * 0.012 * (0.4 + c.damage);
   if (state.rng.next() < risk) {
-    retireCar(state, c, 'avería mecánica');
+    retireCar(state, c, 'averÃ­a mecÃ¡nica');
   } else if (c.damage >= 0.92 && state.rng.next() < 0.25) {
-    retireCar(state, c, 'daño irreparable');
+    retireCar(state, c, 'daÃ±o irreparable');
   }
 }
 
@@ -685,7 +790,7 @@ export function retireCar(state, car, reason) {
   car.retireReason = reason;
   car.speed = 0;
   if (car.isPlayer) {
-    state.messages.push({ text: `Abandono: ${reason}. Pulsa Intro para volver al menú.`, kind: 'dnf' });
+    state.messages.push({ text: `Abandono: ${reason}. Pulsa Intro para volver al menÃº.`, kind: 'dnf' });
     state.playerOut = true;
   } else {
     state.messages.push({ text: `${car.name} abandona (${reason}).`, kind: 'other' });
@@ -718,17 +823,30 @@ function exitSafetyCar(state) {
   state.messages.push({ text: 'Pista verde. Se reanuda la carrera.', kind: 'green' });
 }
 
-/* ───────────────────── Parada en boxes ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Parada en boxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 export function enterPit(state, car, forced = false) {
-  if (car.pitting || car.pitStops >= 3) return false;
+  if (car.pitting) return false;
+  const maxStops = state.maxStops ?? MAX_PIT_STOPS;
+  if (car.pitStops >= maxStops) {
+    if (car.isPlayer) {
+      state.messages.push({
+        text: maxStops === 1 ? 'Solo puedes parar una vez: la parada obligatoria ya estÃ¡ hecha.' : 'No te quedan mÃ¡s paradas en esta sesiÃ³n.',
+        kind: 'warn',
+      });
+    }
+    return false;
+  }
   if (!forced && car.speed > 34) return false;
+  const newTyre = nextTyre(car.strategy, car);
   car.pitting = true;
   car.pitTimerLeft = forced ? 2.6 + state.rng.float(0, 1.2) : 2.2;
   car.pitStops += 1;
   car.pitDone = (car.pitDone || 0) + 1;
   car.pitLap = Math.max(1, Math.floor(car.dist / state.track.length));
-  if (car.isPlayer) state.messages.push({ text: 'Parada en boxes: cambio de neumáticos.', kind: 'pit' });
+  if (car.isPlayer) {
+    state.messages.push({ text: `Parada en boxes: montamos ${TYRES[newTyre].name} (vida ${TYRES[newTyre].life} vueltas).`, kind: 'pit' });
+  }
   return true;
 }
 
@@ -759,17 +877,19 @@ function tickPit(state, car, dt) {
     car.tyre = nextTyre(car.strategy, car);
     car.tyreWear = 0;
     car.tyreAge = 0;
+    car.lapDist = 0;
     car.tyreTemp = 0.3;
   }
 }
 
+/* Con una sola parada el compuesto nuevo es el que fija la estrategia. */
 function nextTyre(strategy, car) {
-  if (!strategy) return 'medium';
-  if (car.pitDone <= 1) return strategy.second || 'medium';
+  if (!strategy) return car?.isPlayer ? secondTyreFor(0) : 'medium';
+  if (car.pitDone <= 1) return strategy.second || secondTyreFor(strategy.tyre);
   return 'soft';
 }
 
-/* ───────────────────── Entrada del jugador ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Entrada del jugador â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function consumeEdgeInput(state, input) {
   if (!input) return;
@@ -779,7 +899,7 @@ function consumeEdgeInput(state, input) {
       const near = state.track.pit;
       const d = nearPitDistance(state.track, p.x, p.y);
       if (d < near.halfWidth + 14 || p.speed < 12) enterPit(state, p);
-      else state.messages.push({ text: 'Pit stop: acércate más a la entrada de boxes.', kind: 'warn' });
+      else state.messages.push({ text: 'Pit stop: acÃ©rcate mÃ¡s a la entrada de boxes.', kind: 'warn' });
     }
   }
   if (input.rescue) {
@@ -813,14 +933,17 @@ export function rescue(state, car) {
   if (car.isPlayer) state.messages.push({ text: 'Coche recuperado por el equipo de seguridad.', kind: 'info' });
 }
 
-/* ───────────────────── Orden, posiciones yolded gaps ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Orden, posiciones y diferencias â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function sortOrder(state) {
   const list = state.cars.slice();
   list.sort((a, b) => {
     if (a.retired !== b.retired) return a.retired ? 1 : -1;
     if (a.finished !== b.finished) return a.finished ? -1 : 1;
-    if (a.finished && b.finished) return a.finishTime - b.finishTime;
+    /* Quien no parÃ³ pierde cinco segundos depenalizaciÃ³n */
+    if (a.finished && b.finished) {
+      return a.finishTime + (a.penaltyMs || 0) - (b.finishTime + (b.penaltyMs || 0));
+    }
     return b.dist - a.dist;
   });
   list.forEach((c, i) => {
@@ -836,13 +959,19 @@ function updateGaps(state) {
     const ahead = i > 0 ? list[i - 1] : null;
     const behind = i < list.length - 1 ? list[i + 1] : null;
     const v = Math.max(12, c.speed);
-    c.gaps.ahead = ahead ? (ahead.dist - c.dist) / v : 0;
+    if (ahead && ahead.finished && c.finished) {
+      const t = (ahead.finishTime + (ahead.penaltyMs || 0)) - (c.finishTime + (c.penaltyMs || 0));
+      c.gaps.ahead = Math.max(0, t);
+      c.intervalMs = Math.round(t * 1000);
+    } else {
+      c.gaps.ahead = ahead ? (ahead.dist - c.dist) / v : 0;
+      c.intervalMs = ahead ? Math.round((ahead.dist - c.dist) * 1000 / v) : 0;
+    }
     c.gaps.behind = behind ? (c.dist - behind.dist) / Math.max(12, behind.speed) : 0;
-    c.intervalMs = ahead ? Math.round((ahead.dist - c.dist) * 1000 / v) : 0;
   }
 }
 
-/* ───────────────────── Cierre ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Cierre â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function finishSession(state, extra = {}) {
   if (state.completed) return;
@@ -857,15 +986,24 @@ function finishSession(state, extra = {}) {
 
   let entries;
   if (isRace) {
-    /* El intervalo en carrera es la distancia recorrida; en la clasificación
+    /* La parada es obligatoria: al cerrar la sesiÃ³n se comprueba que todo el
+       que haya cruzado meta la haya hecho, y se aplica la penalizaciÃ³n */
+    for (const c of state.cars) {
+      if (!c.finished || c.pitStops >= state.maxStops) continue;
+      c.penaltyMs = MISSED_PIT_PENALTY_S * 1000;
+      if (c.isPlayer) state.playerPenaltyS = MISSED_PIT_PENALTY_S;
+    }
+    sortOrder(state);
+    state.order.forEach((c) => { c.classified = c.position; });
+    /* El intervalo en carrera es la distancia recorrida; en la clasificaciÃ³n
        final lo que cuenta es el tiempo de meta, y el resto va por intervalos */
     const leader = state.order[0];
-    const leaderFinish = leader.finishTime || state.clock;
+    const leaderFinish = (leader.finishTime || state.clock) + (leader.penaltyMs || 0);
     entries = state.order.map((c, i) => {
       const fl = state.fastestLap.driverId === c.driverId ? 1 : 0;
       let gapMs = null;
       if (i === 0) gapMs = 0;
-      else if (c.finished && leader.finished) gapMs = Math.round((c.finishTime - leaderFinish) * 1000);
+      else if (c.finished && leader.finished) gapMs = Math.round((c.finishTime + (c.penaltyMs || 0) - leaderFinish) * 1000);
       else if (!c.retired) gapMs = c.intervalMs;
       return {
         driverId: c.driverId,
@@ -883,6 +1021,7 @@ function finishSession(state, extra = {}) {
         lastLapMs: c.lastLapMs,
         fastestLap: Boolean(fl),
         pitStops: c.pitStops,
+        penaltyMs: c.penaltyMs || 0,
         tyre: c.tyre,
         dsq: c.retired,
         retired: c.retired,
@@ -913,8 +1052,8 @@ function finishSession(state, extra = {}) {
       dsq: !c.bestLapMs,
     }));
   } else {
-    /* Clasificación final: todos los pilotos, ordenados por el segmento
-       más profundo al que llegaron y por su mejor tiempo en él */
+    /* ClasificaciÃ³n final: todos los pilotos, ordenados por el segmento
+       mÃ¡s profundo al que llegaron y por su mejor tiempo en Ã©l */
     const last = state.segmentsDone[state.segmentsDone.length - 1];
     const gridPos = new Map((last?.rows || []).slice(0, 10).map((r) => [r.driverId, r.position]));
     const rows = state.cars.slice().sort((a, b) => {
@@ -961,7 +1100,7 @@ function finishSession(state, extra = {}) {
   };
 }
 
-/** Obliga a terminar la sesión (el jugador pulsa Intro en el podio). */
+/** Obliga a terminar la sesiÃ³n (el jugador pulsa Intro en el podio). */
 export function endSessionNow(state) {
   finishSession(state);
   return state.results;
@@ -974,3 +1113,4 @@ export function formatMs(ms) {
 }
 
 export { TYRES, ERS_CAPACITY };
+

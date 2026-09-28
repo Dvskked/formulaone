@@ -1,7 +1,7 @@
 // Guía rápida: controles, sistemas de carrera y camino a F1.
 
 import { el, button } from '../dom.js';
-import { LENGTH_LABELS } from '../../game/race.js';
+import { RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS, MISSED_PIT_PENALTY_S } from '../../game/race.js';
 
 export async function showHowTo(shell, { onBack } = {}) {
   const section = (title, rows) => el('div.card', null, [
@@ -32,8 +32,10 @@ export async function showHowTo(shell, { onBack } = {}) {
           ['Simulación ×1/×2/×3', '4 / 5 / 6'],
         ]),
         section('Carrera', [
-          ['Longitud de carrera', Object.values(LENGTH_LABELS).join(' / ')],
-          ['Neumáticos', 'C5 blandos, C3 medios, C2 duros; verde de lluvia, azul de agua'],
+          ['Distancia', `${RACE_LAPS} vueltas en F1 y F2; el sprint son ${SPRINT_LAPS}`],
+          ['Parada obligatoria', `${MAX_PIT_STOPS === 1 ? 'Una sola parada' : `${MAX_PIT_STOPS} paradas`}; sin parar, +${MISSED_PIT_PENALTY_S} s de penalización`],
+          ['Neumáticos', 'C5 blandos (7 vueltas, los más rápidos), C3 medios (12), C2 duros (16, algo más lentos)'],
+          ['Pista', 'Siempre en seco: no hay gomas de lluvia'],
           ['ERS', 'Se despliega en las rectas y se recupera frenando'],
           ['Daño', 'Sin pasar por boxes se acumula y acaba en el abandono'],
           ['Bandera amarilla', 'No se puede ganar posición; el coche de seguridad te devuelve a pista'],

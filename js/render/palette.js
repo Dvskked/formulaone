@@ -14,11 +14,9 @@ export const TYRE_STYLE = {
   soft: { color: '#e8112d', label: 'C5' },
   medium: { color: '#f5d000', label: 'C3' },
   hard: { color: '#e6e8ee', label: 'C2' },
-  intermediate: { color: '#39b54a', label: 'C4' },
-  wet: { color: '#1560bd', label: 'W' },
 };
 
-export const TYRE_ORDER = ['soft', 'medium', 'hard', 'intermediate', 'wet'];
+export const TYRE_ORDER = ['soft', 'medium', 'hard'];
 
 /** Convierte «#rrggbb» en «r, g, b» para usar con rgba(). */
 export function rgb(hex) {

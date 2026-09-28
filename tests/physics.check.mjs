@@ -4,7 +4,8 @@ import { getCircuit } from '../js/data/circuits.js';
 import { makeRng } from '../js/core/rng.js';
 import {
   makeCarState, stepCar, stepAi, applyLaunch, surfaceAt, powerFactor, gripFactor,
-  brakeFactor, aeroFactor, maxSpeed, TYRES, TYRE_ORDER, ERS_CAPACITY, PIT_SPEED_KMH, DRS_BOOST,
+  brakeFactor, aeroFactor, maxSpeed, TYRES, TYRE_ORDER, tyrePace, tyreGrip, tyreLapsLeft,
+  ERS_CAPACITY, PIT_SPEED_KMH, DRS_BOOST,
 } from '../js/game/car.js';
 import { createCareer } from '../js/game/career.js';
 
@@ -61,8 +62,11 @@ console.log('physics.check');
   check('coche: frenada más fuerte con más frenos', brakeFactor({ brakes: 96 }) > brakeFactor({ brakes: 78 }));
   check('coche: aerodinámica con más alas', aeroFactor({ aero: 96 }) > aeroFactor({ aero: 78 }));
   check('coche: pit a 80 km/h', PIT_SPEED_KMH === 80);
-  check('neumáticos: blando más agarre y desgaste que duro', TYRES.soft.grip > TYRES.hard.grip && TYRES.soft.wear > TYRES.hard.wear);
-  check('neumáticos: gama completa', TYRE_ORDER.length === 5 && TYRE_ORDER.every((k) => TYRES[k]));
+  check('neumáticos: blando más agarre y vida más corta que duro', TYRES.soft.grip > TYRES.hard.grip && TYRES.soft.life < TYRES.hard.life);
+  check('neumáticos: blando más rápido que duro y duro que medio', TYRES.soft.pace > TYRES.medium.pace && TYRES.medium.pace > TYRES.hard.pace);
+  check('neumáticos: vida de 7/12/16 vueltas', TYRES.soft.life === 7 && TYRES.medium.life === 12 && TYRES.hard.life === 16, `${TYRES.soft.life}/${TYRES.medium.life}/${TYRES.hard.life}`);
+  check('neumáticos: solo gomas de seco', TYRE_ORDER.length === 3 && TYRE_ORDER.every((k) => TYRES[k]));
+  check('neumáticos: el desgaste se come el ritmo y el agarre', tyrePace('soft', 1) < tyrePace('soft', 0) && tyreGrip('soft', 1) < tyreGrip('soft', 0));
   check('neumáticos: color de pantalla', Object.values(TYRES).every((t) => /^#[0-9a-f]{6}$/i.test(t.color)));
 }
 

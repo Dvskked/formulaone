@@ -159,13 +159,14 @@ async function navigate(id) {
 }
 
 /** Entra en la aplicación con la partida del hueco indicado. */
-function startCareer(slotIndex) {
+async function startCareer(slotIndex) {
   const data = readSlot(slotIndex);
   if (!data) {
     refreshMenuCards();
     return;
   }
-  ctx.career = data.state;
+  const { hydrateState } = await import('./game/career.js');
+  ctx.career = hydrateState(data.state);
   ctx.slot = slotIndex;
   hideMenu();
   navigate('paddock');

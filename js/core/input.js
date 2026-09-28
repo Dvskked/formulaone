@@ -144,13 +144,16 @@ class InputManager {
       if (Math.abs(pad.ax) > dead) out.steer = pad.ax;
       out.throttle = Math.max(out.throttle, pad.rt);
       if (pad.lt > 0.02) out.brake = Math.max(out.brake, pad.lt);
-      if (out.throttle < 0) {
-        out.brake = Math.max(out.brake, -out.throttle);
-        out.throttle = 0;
-      }
       if (pad.buttons[0]) out.handbrake = true;
       const dpad = (i) => (pad.buttons[i] ? 1 : 0);
       out.steer = clampNum(out.steer - dpad(14) + dpad(15), -1, 1);
+    }
+
+    /* Frenar con el teclado es acelerar hacia atrás: se traduce a freno.
+       Sin esto la tecla de freno no hacía nada y solo se frenaba con mando. */
+    if (out.throttle < 0) {
+      out.brake = Math.max(out.brake, -out.throttle);
+      out.throttle = 0;
     }
 
     /* táctil */

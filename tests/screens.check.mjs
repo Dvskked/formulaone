@@ -167,39 +167,87 @@ try {
   fail(`settings interactivo lanza: ${err.message}`);
 }
 
-/* --- Garaje: comprar mejora y comprobar que se guarda ------------------ */
+/* --- Garaje: el monoplaza no se puede modificar ------------------------- */
 try {
   const { showGarage } = await import('../js/ui/screens/garage.js');
-  const before = state.team.car.power;
+  const before = { ...state.team.car };
   await showGarage(shell);
   const buy = shell.body.querySelectorAll('button').find((b) => b.textContent.includes('Mejorar'));
-  if (buy) {
-    buy.dispatch('click');
-    if (state.team.car.power !== before + 1) fail(`La mejora del garaje no sube la potencia (${before} → ${state.team.car.power})`);
-    else console.log(`  OK   garaje: potencia ${before} → ${state.team.car.power}, desarrollo ${state.teamDevelopment}`);
+  if (buy) fail('El garaje sigue ofreciendo mejoras del monoplaza');
+  else console.log('  OK   garaje: sin mejora del coche');
 
-    /* El desarrollo debe notarse en el coche que sale a pista. */
-    const { currentRound } = await import('../js/game/career.js');
-    const { gridEntryList } = await import('../js/game/career.js');
-    const rd = currentRound(state);
-    const race = createSession({
-      circuit: rd.circuit,
-      entryList: gridEntryList(state),
-      kind: 'feature',
-      round: rd,
-      settings: ctx.settings,
-      seed: 9,
-    });
-    if (race.player.car.power !== state.team.car.power) {
-      fail(`El coche en pista no tiene la mejora (${race.player.car.power} vs ${state.team.car.power})`);
-    } else {
-      console.log(`  OK   la mejora llega a la pista (power ${race.player.car.power})`);
-    }
+  /* Ninguna cifra del coche debe cambiar por pasar por el garaje. */
+  const changed = Object.keys(before).filter((k) => state.team.car[k] !== before[k]);
+  if (changed.length) fail(`El garaje altera el coche: ${changed.join(', ')}`);
+  else console.log('  OK   garaje: el monoplaza no cambia');
+
+  /* El coche que sale a pista es el de la escudería. */
+  const { currentRound, gridEntryList } = await import('../js/game/career.js');
+  const rd = currentRound(state);
+  const race = createSession({
+    circuit: rd.circuit,
+    entryList: gridEntryList(state),
+    kind: 'feature',
+    round: rd,
+    settings: ctx.settings,
+    seed: 9,
+  });
+  if (race.player.car.power !== state.team.car.power) {
+    fail(`El coche en pista no es el de la escudería (${race.player.car.power} vs ${state.team.car.power})`);
   } else {
-    fail('El garaje no ofrece botón de mejora');
+    console.log(`  OK   el coche en pista es el de la escudería (power ${race.player.car.power})`);
   }
 } catch (err) {
   fail(`garage interactivo lanza: ${err.message}`);
+}
+
+/* --- Tablas: escudo, bandera, nombre y puntos a la derecha -------------- */
+try {
+  const { standingsTable, constructorsTable, teamBadge } = await import('../js/ui/screens/tables.js');
+  const series = state.series || 'f1';
+  const rival = series === 'f2' ? 'invicta' : 'mclaren';
+  const standings = {
+    drivers: [
+      { driverId: 'player', teamId: state.teamId, name: 'Jugador', short: 'JUG', flag: '🇪🇸', points: 51, wins: 2, podiums: 3, poles: 1, top10: 5, dnfs: 1 },
+      { driverId: 'rival', teamId: rival, name: 'Rival', short: 'RIV', flag: '🇬🇧', points: 33, wins: 1, podiums: 2, poles: 0, top10: 4, dnfs: 0 },
+    ],
+    teams: [
+      { teamId: state.teamId, points: 84, wins: 2, podiums: 5 },
+      { teamId: rival, points: 70, wins: 1, podiums: 4 },
+    ],
+  };
+  const table = standingsTable(standings, { playerId: 'player', series });
+  const rows = table.querySelectorAll('tbody tr');
+  if (rows.length !== 2) fail(`La clasificación muestra ${rows.length} filas`);
+  const cell = rows[0].children[1].querySelector('.driver-cell');
+  const order = cell.children.map((n) => n.className);
+  if (order[0] !== 'team-crest' || order[1] !== 'flag' || !order[2].includes('grow')) {
+    fail(`Orden incorrecto en la celda del piloto: ${order.join(' | ')}`);
+  } else {
+    console.log(`  OK   piloto: escudo → bandera → nombre (${order.join(' | ')})`);
+  }
+  const src = cell.querySelector('img.team-logo')?.getAttribute('src') || '';
+  if (src !== `assets/teams/${series}/${state.teamId}.png`) fail(`El escudo no apunta al PNG del equipo: "${src}" (esperado assets/teams/${series}/${state.teamId}.png)`);
+  else console.log(`  OK   escudo enlazado: ${src}`);
+
+  const nums = rows[0].children.filter((td) => td.className.includes('num'));
+  if (rows[0].children[2] !== nums[0] || nums[0].textContent !== '51') fail('Los puntos no están en la primera columna numérica');
+  else console.log('  OK   puntos en columna numérica tras el piloto');
+
+  const ctor = constructorsTable(standings, { series }).querySelectorAll('tbody tr');
+  if (!ctor[0].children[1].querySelector('img.team-logo')) fail('La tabla de constructores no muestra escudos');
+  else console.log('  OK   constructores con escudo');
+
+  const sinEscudo = teamBadge('no-existe', series);
+  if (!sinEscudo.querySelector('.team-bar') || sinEscudo.querySelector('img')) fail('Un equipo sin escudo no cae a la barrita de color');
+  else console.log('  OK   equipo sin escudo → barrita de color');
+
+  const roto = teamBadge(rival, series);
+  roto.querySelector('img').dispatch('error');
+  if (roto.querySelector('img') || !roto.querySelector('.team-bar')) fail('Un escudo que no carga no cae a la barrita de color');
+  else console.log('  OK   escudo inexistente en disco → barrita de color');
+} catch (err) {
+  fail(`tablas lanza: ${err.message}`);
 }
 
 /* --- Buzón: marcar todo como leído ------------------------------------- */
@@ -218,20 +266,43 @@ try {
   fail(`inbox interactivo lanza: ${err.message}`);
 }
 
-/* --- Pantalla de carrera: lienzo, HUD, input y bucle ------------------- */
+/* --- Pantalla de carrera: selector de neumático, lienzo, HUD y bucle ----- */
 try {
   const { showSession, stopSession } = await import('../js/ui/screens/session.js');
   const { currentRound } = await import('../js/game/career.js');
   const rd = currentRound(state);
   const def = rd.sessions.find((s) => s.required && !s.played);
   ctx.running = true;
-  await showSession(shell, { session: def, round: rd });
+  /* La pantalla de carrera pide el neumático de salida: se abre en segundo plano
+     y se responde con el primer botón del selector. */
+  const pending = showSession(shell, { session: def, round: rd });
+  const pick = (retry = 0) => {
+    const buttons = shell.modalRoot?.querySelectorAll?.('.actions button') || [];
+    if (buttons.length) {
+      const first = buttons.find((b) => /Blando|Medio|Duro/.test(b.textContent)) || buttons[0];
+      if (!first.textContent.includes('vida')) {
+        first.dispatch('click');
+        return true;
+      }
+    }
+    if (retry < 40) {
+      setTimeout(() => pick(retry + 1), 5);
+      return true;
+    }
+    return false;
+  };
+  pick();
+  await pending;
+  if (!shell.modalRoot.hidden) fail('el selector de neumático sigue abierto');
+  else console.log('  OK   selector de neumático previo a la parrilla');
   if (!shell.body.querySelector('canvas.race-canvas')) fail('La sesión no monta el lienzo de la pista');
   if (!shell.body.querySelector('.hud')) fail('La sesión no monta el HUD');
   const touch = shell.body.querySelectorAll('[data-touch]').length;
   const actions = shell.body.querySelectorAll('[data-action-touch]').length;
   if (touch < 3) fail(`Solo hay ${touch} mandos táctiles (deben ser 3)`);
   if (actions < 2) fail(`Solo hay ${actions} botones táctiles de acción`);
+  if (ctx.session && ctx.session.laps !== 20) fail(`La carrera no es de 20 vueltas (laps=${ctx.session.laps})`);
+  else console.log('  OK   carrera: 20 vueltas, una parada obligatoria');
   /* Se simulan unos fotogramas y se detiene. */
   await new Promise((r) => setTimeout(r, 250));
   stopSession();

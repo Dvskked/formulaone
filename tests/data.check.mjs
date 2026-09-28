@@ -1,6 +1,9 @@
 // Comprobaciones de los datos: circuitos, equipos, pilotos, calendario y países.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { CIRCUITS, getCircuit, circuitCount } from '../js/data/circuits.js';
-import { F1_TEAMS, F2_TEAMS, getTeam, teamsFor, carPerformance, staffFor, ownerFor } from '../js/data/teams.js';
+import { F1_TEAMS, F2_TEAMS, getTeam, teamsFor, carPerformance, staffFor, ownerFor, teamLogo } from '../js/data/teams.js';
 import { F1_DRIVERS, F2_DRIVERS, driversFor, findDriver, averageRating } from '../js/data/drivers.js';
 import { F1_ROUNDS, F2_ROUNDS, roundsFor, getRound, SEASON, TESTING, roundIsComplete } from '../js/data/calendar.js';
 import { COUNTRY_LIST, HELMET_COLORS, countryByCode, validateBirth, ageAt, MIN_AGE, MAX_AGE } from '../js/data/countries.js';
@@ -55,6 +58,41 @@ console.log('data.check');
   check('equipos: serie incorrecta devuelve null', getTeam(F2_TEAMS[0].id, 'f1') === null);
   check('equipos: lista por serie', teamsFor('f1').length === 11 && teamsFor('f2').length === 11);
   check('equipos: rendimiento positivo', F1_TEAMS.every((t) => carPerformance(t, 'f1') > 0));
+}
+
+const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/* ── Escudos ── */
+{
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const pngInfo = (buf) => {
+    const w = buf.readUInt32BE(16);
+    const h = buf.readUInt32BE(20);
+    return {
+      w, h,
+      colorType: buf[25],
+      alpha: [4, 6].includes(buf[25]),
+      wOk: w >= 24 && w <= 512 && h >= 24 && h <= 512,
+    };
+  };
+  const missing = [];
+  const badPng = [];
+  const read = (t, series) => {
+    const file = teamLogo(t, series);
+    try {
+      const buf = readFileSync(join(projectRoot, file));
+      const info = pngInfo(buf);
+      if (!buf.subarray(0, 8).equals(pngSignature) || !info.wOk || !info.alpha) badPng.push(`${file} (${info.w}x${info.h}, tipo ${info.colorType})`);
+    } catch {
+      missing.push(file);
+    }
+  };
+  F1_TEAMS.forEach((t) => read(t, 'f1'));
+  F2_TEAMS.forEach((t) => read(t, 'f2'));
+  check('escudos: existe un PNG por escudería', missing.length === 0, missing.join(','));
+  check('escudos: PNG con canal alfa y tamaño útil', badPng.length === 0, badPng.join(','));
+  check('escudos: ruta deducida de la serie', teamLogo(F1_TEAMS[0], 'f1') === `assets/teams/f1/${F1_TEAMS[0].id}.png` && teamLogo(F2_TEAMS[0], 'f2') === `assets/teams/f2/${F2_TEAMS[0].id}.png`);
+  check('escudos: equipo sin escudo devuelve vacío', teamLogo(null) === '' && teamLogo(undefined) === '');
 }
 
 /* ── Pilotos ── */

@@ -1,7 +1,7 @@
-// Ajustes: sonido, ayudas de conducción, longitud de carrera y datos.
+// Ajustes: sonido, ayudas de conducción y datos.
 
 import { el, button, segmented, toggle } from '../dom.js';
-import { LENGTH_LABELS } from '../../game/race.js';
+import { RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS } from '../../game/race.js';
 import { storageInfo, downloadText, DEFAULT_SETTINGS } from '../../core/storage.js';
 import { audio } from '../../core/audio.js';
 import { ctx, setSettings } from '../context.js';
@@ -67,14 +67,7 @@ export async function showSettings(shell, { onBack } = {}) {
           ]),
           el('div.card', null, [
             el('h3', { text: 'Sesión' }),
-            el('div.field', null, [
-              el('label', { text: 'Duración de carrera' }),
-              segmented(Object.entries(LENGTH_LABELS).map(([value, label]) => ({ value, label })), s.raceLength, (value) => {
-                setSettings({ raceLength: value });
-                paint();
-              }),
-              el('div.err', { text: 'Aplica a carreras y sprints; los sprints son siempre un 30 % más cortos.' }),
-            ]),
+            el('p.muted', { text: `Las carreras son siempre de ${RACE_LAPS} vueltas (el sprint, ${SPRINT_LAPS}) con ${MAX_PIT_STOPS === 1 ? 'una' : MAX_PIT_STOPS} parada obligatoria y una sola salida en seco.` }),
             el('div.field', null, [
               el('label', { text: 'Unidades' }),
               segmented([{ value: 'metric', label: 'Métrico (km/h)' }, { value: 'imperial', label: 'Imperial (mph)' }], s.units, (value) => {

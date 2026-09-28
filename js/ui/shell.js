@@ -150,7 +150,8 @@ export class Shell {
       this.modalRoot.hidden = false;
       this.modalRoot.onclick = (e) => { if (dismissable && e.target === this.modalRoot) close(null); };
       const first = panel.querySelector('button');
-      first?.focus();
+      /* En entornos sin soporte de foco (pruebas, DOM simulado) no debe fallar */
+      if (first && typeof first.focus === 'function') first.focus();
     });
   }
 

@@ -1,6 +1,7 @@
 ﻿// Prueba de humo del motor de sesión: practices, Q1/Q2/Q3, parrilla y carrera.
 import { buildTrack } from '../js/game/track.js';
-import { createSession, updateSession, endSessionNow, formatMs } from '../js/game/race.js';
+import { createSession, updateSession, endSessionNow, formatMs, enterPit, RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS, MISSED_PIT_PENALTY_S } from '../js/game/race.js';
+import { TYRES, tyreLapsLeft } from '../js/game/car.js';
 import { getCircuit } from '../js/data/circuits.js';
 import { makeRng } from '../js/core/rng.js';
 import { DEFAULT_SETTINGS } from '../js/core/storage.js';
@@ -135,7 +136,9 @@ console.log('race-engine.check');
   run(state, 190, fakeInput());
   const res = endSessionNow(state);
   check('sprint: resultados completos', res.entries.length === 20, `n=${res.entries.length}`);
-  check('sprint: menos vueltas que la carrera', state.laps > 0 && state.laps < state.fullLaps, `laps=${state.laps}/${state.fullLaps}`);
+  check('sprint: ocho vueltas, menos que el gran premio', state.laps === SPRINT_LAPS && SPRINT_LAPS < RACE_LAPS, `laps=${state.laps}/${RACE_LAPS}`);
+  check('sprint: una sola parada obligatoria', state.maxStops === 1, `maxStops=${state.maxStops}`);
+  check('sprint: carrera en seco', state.weather.wet === false, `wet=${state.weather.wet}`);
   check('sprint: abandonos coherentes', res.entries.every((e) => e.retired === Boolean(e.retireReason)), `retirados=${res.entries.filter((e) => e.retired).length}`);
   check('sprint: posiciones 1..n sin huecos', res.entries.every((e, i) => e.position === i + 1));
   console.log(`       vueltas: ${state.laps} · abandonos: ${res.entries.filter((e) => e.retired).length} · lider: ${res.entries[0].name}`);
@@ -155,8 +158,12 @@ console.log('race-engine.check');
     settings: { ...DEFAULT_SETTINGS, raceLength: 'media' },
     seed: 3,
   });
-  const expected = Math.max(3, Math.round(state.fullLaps * 0.22));
-  check('carrera: vueltas según longitud', state.laps === expected, `laps=${state.laps} esperado=${expected}`);
+  const expected = RACE_LAPS;
+  check('carrera: 20 vueltas fijas', state.laps === expected, `laps=${state.laps} esperado=${expected}`);
+  check('carrera: una sola parada obligatoria', state.maxStops === MAX_PIT_STOPS, `maxStops=${state.maxStops}`);
+  check('carrera: el jugador elige el neumático de salida', TYRES[state.player.tyre] != null, `tyre=${state.player.tyre}`);
+  check('carrera: carrera en seco', state.weather.kind === 'dry' && state.weather.wet === false, `kind=${state.weather.kind}`);
+  check('carrera: la IA entra una vez', state.cars.filter((c) => !c.isPlayer).every((c) => c.strategy.stops === 1), 'estrategias');
   run(state, 120, { steer: 0, throttle: 1, brake: 0, drsPressed: true, edges: {} });
   check('carrera: el jugador avanza', state.player.dist > 100, `dist=${state.player.dist.toFixed(0)}`);
   check('carrera: posiciones fluctuate', state.order.every((c, i) => c.position === i + 1));
@@ -167,6 +174,53 @@ console.log('race-engine.check');
   console.log(`       vueltas: ${state.laps} · lider: ${res.entries[0].name} · jugador P${res.playerPosition}`);
 }
 
+/* ── Parada obligatoria y penalización ── */
+{
+  const { career, list } = makeField('f1', 202);
+  const round = { ...currentRound(career), circuitId: 'monza', sessions: [{ id: 'race', type: 'feature', name: 'Carrera' }] };
+  const circuit = getCircuit('monza');
+  const base = {
+    circuit,
+    entryList: list,
+    kind: 'feature',
+    round,
+    grid: list.map((e, i) => ({ driverId: e.driverId, position: i + 1 })),
+    settings: { ...DEFAULT_SETTINGS },
+    seed: 7,
+  };
+
+  /* Sin parar: cinco segundos de penalización */
+  const noStop = createSession({ ...base, startTyre: 'medium' });
+  run(noStop, 12, { steer: 0, throttle: 1, brake: 0, drsPressed: false, edges: {} });
+  check('semáforo: se han encendido las cinco luces', noStop.lights === 5 || noStop.phase !== 'countdown', `lights=${noStop.lights} phase=${noStop.phase}`);
+  noStop.player.dist = noStop.totalDistance + 1;
+  run(noStop, 1, { steer: 0, throttle: 0, brake: 0, drsPressed: false, edges: {} });
+  check('sin parar: el coche termina', noStop.player.finished, `finished=${noStop.player.finished}`);
+  check(`sin parar: +${MISSED_PIT_PENALTY_S} s de penalización`, noStop.player.penaltyMs === MISSED_PIT_PENALTY_S * 1000, `ms=${noStop.player.penaltyMs}`);
+
+  /* Parando: sin penalización y con compuesto nuevo */
+  const withStop = createSession({ ...base, startTyre: 'soft' });
+  run(withStop, 12, { steer: 0, throttle: 1, brake: 0, drsPressed: false, edges: {} });
+  check('parada: con blandos el primer stint dura lo que el compuesto', withStop.player.strategy.second === 'hard', `second=${withStop.player.strategy.second}`);
+  const before = withStop.player.tyre;
+  enterPit(withStop, withStop.player, true);
+  run(withStop, 4, { steer: 0, throttle: 0, brake: 0, drsPressed: false, edges: {} });
+  check('parada: cambia de compuesto', withStop.player.tyre !== before, `${before} → ${withStop.player.tyre}`);
+  check('parada: el desgaste se reinicia', withStop.player.tyreWear < 0.01 && withStop.player.lapDist < 400, `wear=${withStop.player.tyreWear} dist=${withStop.player.lapDist.toFixed(0)}`);
+  const second = enterPit(withStop, withStop.player, true);
+  check('parada: no se puede parar dos veces', second === false && withStop.player.pitStops === 1, `pitStops=${withStop.player.pitStops}`);
+  withStop.player.dist = withStop.totalDistance + 1;
+  run(withStop, 1, { steer: 0, throttle: 0, brake: 0, drsPressed: false, edges: {} });
+  check('parada: sin penalización', withStop.player.penaltyMs === 0, `ms=${withStop.player.penaltyMs}`);
+
+  /* Degradación por distancia: la vida de cada compuesto */
+  for (const [id, life] of Object.entries({ soft: 7, medium: 12, hard: 16 })) {
+    check(`neumático ${id}: vida de ${life} vueltas`, TYRES[id].life === life && Math.abs(tyreLapsLeft(id, 1)) < 0.001 && Math.abs(tyreLapsLeft(id, 0) - life) < 0.001, `left=${tyreLapsLeft(id, 1)}`);
+  }
+}
+
+
 console.log(failures === 0 ? '\nTODO OK' : `\n${failures} comprobación(es) fallida(s)`);
 process.exit(failures === 0 ? 0 : 1);
+
 

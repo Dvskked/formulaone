@@ -625,7 +625,7 @@ export function driverCard(state) {
 /**
  * Lista de entrada para la parrilla con el coche actual del jugador.
  * Las entradas guardan una copia del equipo en el momento de crearse, así que
- * sin esto el desarrollo comprado en el garaje no se notaría en pista.
+ * sin esto el monoplaza que sale a pista podría no ser el de su escudería.
  * @param {object} state estado de carrera
  * @returns {Array<object>}
  */
@@ -635,6 +635,23 @@ export function gridEntryList(state) {
   const team = state.team;
   if (!team) return list.slice();
   return list.map((entry) => (entry.teamId === state.teamId ? { ...entry, team } : entry));
+}
+
+/**
+ * Limpia una partida guardada por una versión anterior.
+ * El garaje ya no desarrolla el monoplaza, así que se restaura el coche de
+ * fábrica y se borran los campos del antiguo sistema de mejora.
+ * @param {object} state estado de carrera
+ * @returns {object} el mismo estado, ya saneado
+ */
+export function hydrateState(state) {
+  if (!state || typeof state !== 'object') return state;
+  if (state.teamDevelopment === undefined && !state.teamUpgraded) return state;
+  const base = getTeam(state.teamId, state.series);
+  if (base && state.team) state.team = { ...state.team, car: { ...base.car } };
+  delete state.teamDevelopment;
+  delete state.teamUpgraded;
+  return state;
 }
 
 export function teamCard(state) {

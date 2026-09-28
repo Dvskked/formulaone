@@ -306,6 +306,19 @@ export function getTeam(id, series = 'f1') {
   return F1_BY_ID.get(id) || null;
 }
 
+/**
+ * Ruta del escudo de la escudería: PNG con fondo transparente en assets/teams.
+ * Se deduce del id y la categoría, así que no hay que repetirla en los datos.
+ * @param {string|object} team id u objeto de escudería
+ * @param {string} series 'f1' | 'f2'
+ * @returns {string} ruta relativa; cadena vacía si no hay escudo
+ */
+export function teamLogo(team, series = 'f1') {
+  const id = typeof team === 'string' ? team : team?.id;
+  if (!id) return '';
+  return `assets/teams/${series === 'f2' ? 'f2' : 'f1'}/${id}.png`;
+}
+
 export function teamsFor(series) {
   return series === 'f2' ? F2_TEAMS : F1_TEAMS;
 }

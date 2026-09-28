@@ -3,7 +3,8 @@
 // detiene el resto de la interfaz mientras corre.
 
 import { el, button, formatTime } from '../dom.js';
-import { createSession, updateSession, LENGTH_LABELS } from '../../game/race.js';
+import { createSession, updateSession, RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS } from '../../game/race.js';
+import { TYRES, TYRE_ORDER, tyrePace } from '../../game/car.js';
 import { getCircuit } from '../../data/circuits.js';
 import { recordSession, currentRound, roundFinished, advanceToNextRound, gridEntryList } from '../../game/career.js';
 import { TrackView } from '../../render/track-view.js';
@@ -14,6 +15,49 @@ import { ctx, buildTeamIndex } from '../context.js';
 import { autosave } from '../save.js';
 
 const SIM_STEP = 1 / 60;
+
+/** Vueltas según el tipo de sesión. */
+function lapsFor(kind) {
+  if (kind === 'sprint') return SPRINT_LAPS;
+  if (kind === 'feature') return RACE_LAPS;
+  return 0;
+}
+
+/**
+ * Pantalla previa a la parrilla: el jugador elige con qué neumático sale.
+ * Los blandos son los más rápidos pero duran 7 vueltas, así que hay que
+ * llegar a la parada con ellos.
+ */
+async function pickStartTyre(shell, { laps, lastTyre }) {
+  const detail = (id) => {
+    const t = TYRES[id];
+    const pace = Math.round((tyrePace(id, 0) - 1) * 100);
+    return `${t.name} · vida ${t.life} vueltas · ${pace >= 0 ? '+' : ''}${pace}% de ritmo`;
+  };
+  const pick = await shell.modal({
+    title: 'Neumático de salida',
+    body: el('div.stack', null, [
+      el('p.muted', {
+        text: `${laps} vueltas y ${MAX_PIT_STOPS} parada${MAX_PIT_STOPS > 1 ? 's' : ''} obligatoria${MAX_PIT_STOPS > 1 ? 's' : ''}. Elige con qué compuesto sales: el desgaste llega al final de su vida.`,
+      }),
+      el('ul.tyre-list', null, TYRE_ORDER.map((id) =>
+        el('li.tyre-item', null, [
+          el('span.tyre-dot', { style: `background:${TYRES[id].color}` }),
+          el('span.tyre-name', { text: TYRES[id].name }),
+          el('span.tyre-life', { text: detail(id) }),
+        ])
+      )),
+      el('p.muted.hint', { text: `Salir con el ${TYRES[lastTyre]?.name || 'medio'} te permite alargar la primera entrada.`, }),
+    ]),
+    actions: TYRE_ORDER.map((id) => ({
+      label: TYRES[id].name,
+      kind: id === (lastTyre || 'medium') ? 'primary' : 'ghost',
+      value: id,
+    })),
+    dismissable: true,
+  });
+  return TYRES[pick] ? pick : lastTyre || 'medium';
+}
 
 let active = null;
 
@@ -35,6 +79,13 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
   const circuit = getCircuit(raceRound.circuitId);
   const teamsById = buildTeamIndex(state.series);
 
+  /* Elección de neumático antes de salir a pista */
+  const laps = lapsFor(sessionDef.type);
+  const startTyre = laps > 0
+    ? await pickStartTyre(shell, { laps, lastTyre: ctx.settings.startTyre || 'medium' })
+    : 'soft';
+  if (laps > 0) ctx.settings.startTyre = startTyre;
+
   const session = createSession({
     circuit,
     entryList: gridEntryList(state),
@@ -42,6 +93,7 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
     round: raceRound,
     settings: ctx.settings,
     seed: `${state.seed}|${state.series}|${state.round}|${sessionDef.id}`,
+    startTyre,
   });
   ctx.session = session;
 
@@ -61,8 +113,14 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
   shell.setNav([]);
   shell.setChrome({
     title: `${sessionDef.name} · ${circuit.name}`,
-    subtitle: `${raceRound.flag} ${raceRound.gp} · ${circuit.length} km · ${LENGTH_LABELS[ctx.settings.raceLength] || ' corta'}`,
-    chips: [el('span.chip.chip-red', { text: state.series === 'f1' ? 'F1' : 'F2' }), el('span.chip', { text: circuit.weather })],
+    subtitle: laps > 0
+      ? `${raceRound.flag} ${raceRound.gp} · ${laps} vueltas · ${MAX_PIT_STOPS} parada obligatoria · ${TYRES[startTyre].name}`
+      : `${raceRound.flag} ${raceRound.gp} · ${circuit.length} km`,
+    chips: [
+      el('span.chip.chip-red', { text: state.series === 'f1' ? 'F1' : 'F2' }),
+      el('span.chip', { text: 'Seco' }),
+      laps > 0 ? el('span.chip', { text: `${TYRES[startTyre].name} · ${TYRES[startTyre].life} vueltas` }) : null,
+    ].filter(Boolean),
   });
 
   const view = new TrackView(canvas);
@@ -255,6 +313,7 @@ function updateAudio(session, controls = {}) {
 
 let lastLap = 1;
 let lastPhase = '';
+let lastLights = 0;
 let lastGear = 1;
 let lastDrs = false;
 let lastRetired = false;
@@ -263,6 +322,7 @@ let lastRetired = false;
 function resetAudioTriggers() {
   lastLap = 1;
   lastPhase = '';
+  lastLights = 0;
   lastGear = 1;
   lastDrs = false;
   lastRetired = false;
@@ -272,8 +332,12 @@ function checkEvents(session) {
   const p = session.player;
   if (session.phase !== lastPhase) {
     if (session.phase === 'green') audio.sfx('beepGo');
-    if (lastPhase === 'countdown') audio.sfx('lights');
     lastPhase = session.phase;
+  }
+  /* Una baliza por luz roja encendida, y el pitido largo al apagarse todas */
+  if (session.lights !== lastLights) {
+    if (session.lights > lastLights) audio.sfx('beep');
+    lastLights = session.lights;
   }
   if (p.lap !== lastLap) {
     lastLap = p.lap;

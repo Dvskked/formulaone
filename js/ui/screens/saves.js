@@ -32,7 +32,8 @@ export async function showSaves(shell, { onPick, onBack } = {}) {
             onClick: async () => {
               const data = readSlot(slot.index);
               if (!data) return;
-              ctx.career = data.state || data;
+              const { hydrateState } = await import('../../game/career.js');
+              ctx.career = hydrateState(data.state || data);
               ctx.slot = slot.index;
               shell.toast('Partida cargada.', 'good');
               onPick?.(slot.index);

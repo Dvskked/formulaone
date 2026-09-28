@@ -837,13 +837,16 @@ class InputManager {
       if (Math.abs(pad.ax) > dead) out.steer = pad.ax;
       out.throttle = Math.max(out.throttle, pad.rt);
       if (pad.lt > 0.02) out.brake = Math.max(out.brake, pad.lt);
-      if (out.throttle < 0) {
-        out.brake = Math.max(out.brake, -out.throttle);
-        out.throttle = 0;
-      }
       if (pad.buttons[0]) out.handbrake = true;
       const dpad = (i) => (pad.buttons[i] ? 1 : 0);
       out.steer = clampNum(out.steer - dpad(14) + dpad(15), -1, 1);
+    }
+
+    /* Frenar con el teclado es acelerar hacia atrás: se traduce a freno.
+       Sin esto la tecla de freno no hacía nada y solo se frenaba con mando. */
+    if (out.throttle < 0) {
+      out.brake = Math.max(out.brake, -out.throttle);
+      out.throttle = 0;
     }
 
     /* táctil */
@@ -1134,7 +1137,7 @@ const DEFAULT_SETTINGS = {
   brakeAssist: true,
   stability: 0.6,
   units: 'metric' /* metric | imperial */,
-  raceLength: 'corta' /* corta | media | larga | completa */,
+  startTyre: 'medium' /* soft | medium | hard: compuesto elegido para la carrera */,
   hudScale: 1,
   simSpeed: 1,
   showMinimap: true,
@@ -1864,6 +1867,7 @@ function mainSessionName(round) {
 __registry["js/data/circuits.js"] = function (__x, __req) {
 // Los 23 circuitos del calendario 2026 de Fórmula 1, más Sakhir, que hosts los
 // tests de pretemporada. Trazados estilizados: rectas y curvas medidas en metros.
+// Todas las carreras son de 20 vueltas sobre asfalto en seco.
 
 const CIRCUITS = [
   {
@@ -1874,11 +1878,11 @@ const CIRCUITS = [
     country: 'BHR',
     flag: '🇧🇭',
     length: 5.412,
-    laps: 12,
+    laps: 20,
     record: '1:30.499',
     weather: 'dry',
     night: false,
-    width: 13,
+    width: 19,
     corners: ['T1', 'T2-3', 'T4', 'T5-6-7', 'T8', 'T9-10', 'T11', 'T13', 'T15'],
     seg: [
       ['s', 480], ['c', 95, 62], ['c', 130, -38], ['c', 190, 30], ['c', 120, -44],
@@ -1894,10 +1898,10 @@ const CIRCUITS = [
     country: 'AUS',
     flag: '🇦🇺',
     length: 5.278,
-    laps: 12,
+    laps: 20,
     record: '1:15.481',
-    weather: 'variable',
-    width: 13,
+    weather: 'dry',
+    width: 19,
     corners: ['T1 Graham Richardson', 'T2-3', 'T4-5', 'T6-7', 'T8-9', 'T10-11', 'T12', 'T13-14'],
     seg: [
       ['s', 460], ['c', 95, 96], ['c', 150, -34], ['c', 110, 66], ['s', 270],
@@ -1913,10 +1917,10 @@ const CIRCUITS = [
     country: 'CHN',
     flag: '🇨🇳',
     length: 5.451,
-    laps: 12,
+    laps: 20,
     record: '1:33.660',
     weather: 'dry',
-    width: 14,
+    width: 19,
     corners: ['T1-2-3', 'T4-5-6 Carousel', 'T7', 'T9-10', 'T11-12-13', 'T14'],
     seg: [
       ['s', 880], ['c', 130, 46], ['c', 130, -46], ['c', 220, 40], ['c', 320, -26],
@@ -1932,10 +1936,10 @@ const CIRCUITS = [
     country: 'JPN',
     flag: '🇯🇵',
     length: 5.807,
-    laps: 12,
+    laps: 20,
     record: '1:30.781',
-    weather: 'variable',
-    width: 14,
+    weather: 'dry',
+    width: 19,
     corners: ['T1', 'Degner 1-2', 'S Curves', 'Hairpin', 'Spoon', '130R', 'Casio Triangle'],
     seg: [
       ['s', 330], ['c', 210, 30], ['e', 420, 46, 4], ['c', 160, -26], ['c', 130, 52],
@@ -1951,11 +1955,11 @@ const CIRCUITS = [
     country: 'USA',
     flag: '🇺🇸',
     length: 5.412,
-    laps: 13,
+    laps: 20,
     record: '1:27.241',
-    weather: 'variable',
+    weather: 'dry',
     night: false,
-    width: 14,
+    width: 19,
     corners: ['T1', 'T2-3', 'T4-5-6', 'T7', 'T8-9', 'T11-12', 'T14-15', 'T16', 'T17'],
     seg: [
       ['s', 520], ['c', 80, 66], ['c', 140, -34], ['c', 210, -28], ['c', 110, 46],
@@ -1972,10 +1976,10 @@ const CIRCUITS = [
     country: 'CAN',
     flag: '🇨🇦',
     length: 4.361,
-    laps: 14,
+    laps: 20,
     record: '1:12.000',
-    weather: 'variable',
-    width: 14.5,
+    weather: 'dry',
+    width: 20,
     corners: ['T1-2 Hairpin', 'T3-4 Esses', 'T5-6-7', 'T8-9', 'T10-11', 'T12', 'T13-14-15 Wall of Champions'],
     seg: [
       ['s', 430], ['c', 48, 90], ['c', 48, 84], ['s', 240], ['c', 65, 62], ['c', 65, -62],
@@ -1992,10 +1996,10 @@ const CIRCUITS = [
     country: 'MON',
     flag: '🇲🇨',
     length: 3.337,
-    laps: 15,
+    laps: 20,
     record: '1:12.271',
     weather: 'dry',
-    width: 12,
+    width: 18,
     corners: ['Ste Fairmont', 'Hairpin Grand Hotel', 'Mirabeau', 'Tunnel', 'Nouvelle Chicane', 'Tabac', 'Swimming Pool', 'Rascasse', 'Anthony Noghes'],
     seg: [
       ['s', 210], ['c', 45, 120], ['c', 40, 130], ['s', 120], ['c', 35, 96], ['c', 35, -70],
@@ -2012,10 +2016,10 @@ const CIRCUITS = [
     country: 'ESP',
     flag: '🇪🇸',
     length: 4.657,
-    laps: 12,
+    laps: 20,
     record: '1:11.262',
     weather: 'dry',
-    width: 14,
+    width: 19,
     corners: ['T1', 'T2', 'T3', 'T4', 'T5', 'T7-8', 'T9-10', 'T12', 'T13-14-15'],
     seg: [
       ['s', 480], ['c', 260, 20], ['c', 95, 72], ['c', 300, -26], ['c', 85, 64],
@@ -2031,10 +2035,10 @@ const CIRCUITS = [
     country: 'AUT',
     flag: '🇦🇹',
     length: 4.318,
-    laps: 14,
+    laps: 20,
     record: '1:05.772',
-    weather: 'variable',
-    width: 14,
+    weather: 'dry',
+    width: 19,
     corners: ['T1', 'T2-3', 'T4', 'T6-7', 'T8-9-10', 'T11'],
     seg: [
       ['s', 300], ['c', 250, 16], ['c', 65, 72], ['s', 300], ['c', 320, -20], ['c', 75, 64],
@@ -2049,10 +2053,10 @@ const CIRCUITS = [
     country: 'GBR',
     flag: '🇬🇧',
     length: 5.891,
-    laps: 11,
+    laps: 20,
     record: '1:25.819',
-    weather: 'variable',
-    width: 14.5,
+    weather: 'dry',
+    width: 20,
     corners: ['Abbey', 'Farm', 'Village', 'The Loop', 'Aintree', 'Wellington Straight', 'Brooklands', 'Luffield', 'Copse', 'Hangar Straight', 'Stowe', 'Vale', 'Club'],
     seg: [
       ['s', 470], ['c', 210, 26], ['c', 250, -20], ['c', 65, 64], ['c', 160, 30], ['c', 110, -42],
@@ -2069,10 +2073,10 @@ const CIRCUITS = [
     country: 'BEL',
     flag: '🇧🇪',
     length: 7.004,
-    laps: 10,
+    laps: 20,
     record: '1:53.117',
-    weather: 'variable',
-    width: 14,
+    weather: 'dry',
+    width: 19,
     corners: ['La Source', 'Eau Rouge', 'Raidillon', 'Kemmel', 'Les Combes', 'Malmedy', 'Rivage', 'Pif-Paf', 'Bus Stop'],
     seg: [
       ['s', 480], ['c', 55, 60], ['c', 90, -55], ['s', 180], ['c', 42, 74], ['c', 48, -70],
@@ -2088,10 +2092,10 @@ const CIRCUITS = [
     country: 'HUN',
     flag: '🇭🇺',
     length: 4.381,
-    laps: 15,
+    laps: 20,
     record: '1:16.627',
     weather: 'dry',
-    width: 14,
+    width: 19,
     corners: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12-13', 'T14'],
     seg: [
       ['s', 400], ['c', 260, 16], ['c', 58, 68], ['c', 105, -46], ['c', 95, 52], ['c', 85, -56],
@@ -2107,10 +2111,10 @@ const CIRCUITS = [
     country: 'NED',
     flag: '🇳🇱',
     length: 4.259,
-    laps: 14,
+    laps: 20,
     record: '1:09.673',
-    weather: 'variable',
-    width: 13.5,
+    weather: 'dry',
+    width: 19,
     corners: ['T1', 'Tarzan', 'Gerlach', 'Hugenholtz', 'Kink', 'Scheivlak', 'Arie Luyendyk'],
     seg: [
       ['s', 400], ['c', 260, 18], ['c', 52, 72], ['c', 105, -46], ['c', 85, 54], ['c', 95, -52],
@@ -2125,10 +2129,10 @@ const CIRCUITS = [
     country: 'ITA',
     flag: '🇮🇹',
     length: 5.793,
-    laps: 11,
+    laps: 20,
     record: '1:19.357',
     weather: 'dry',
-    width: 14,
+    width: 19,
     corners: ['T1-2 Rettifilo', 'T3-4', 'Curva Grande', 'Variante della Roggia', 'Lesmo 1', 'Lesmo 2', 'Ascari 1-2-3', 'Parabolica'],
     seg: [
       ['s', 880], ['c', 95, 52], ['c', 95, -52], ['c', 210, -16], ['c', 48, 88], ['s', 480],
@@ -2144,10 +2148,10 @@ const CIRCUITS = [
     country: 'ESP',
     flag: '🇪🇸',
     length: 5.1,
-    laps: 12,
+    laps: 20,
     record: '1:19.900',
     weather: 'dry',
-    width: 15,
+    width: 20,
     corners: ['T1', 'T2-3', 'T4', 'T5-6', 'T7', 'T8-9', 'T10', 'T11-12', 'T13'],
     seg: [
       ['s', 700], ['c', 350, 20], ['c', 210, -26], ['c', 130, 48], ['s', 380], ['c', 260, -20],
@@ -2163,10 +2167,10 @@ const CIRCUITS = [
     country: 'AZE',
     flag: '🇦🇿',
     length: 6.003,
-    laps: 12,
+    laps: 20,
     record: '1:41.365',
     weather: 'dry',
-    width: 12.5,
+    width: 18,
     corners: ['T1', 'T2-3', 'T4', 'T5', 'T6-7', 'T8', 'T9', 'T10-12', 'T13-16 Castle', 'T17-20', 'T21-23'],
     seg: [
       ['s', 1100], ['c', 210, 16], ['c', 62, 68], ['c', 105, -32], ['c', 42, 60], ['c', 95, -26],
@@ -2183,10 +2187,10 @@ const CIRCUITS = [
     country: 'MAS',
     flag: '🇲🇾',
     length: 5.543,
-    laps: 12,
+    laps: 20,
     record: '1:34.671',
-    weather: 'variable',
-    width: 14,
+    weather: 'dry',
+    width: 19,
     corners: ['T1-2', 'T3-4', 'T5-6', 'T7-8', 'T9-10', 'T11-12', 'T13-14', 'T15-16'],
     seg: [
       ['s', 580], ['c', 50, 88], ['c', 50, 86], ['s', 660], ['c', 110, 46], ['c', 95, -50],
@@ -2202,11 +2206,11 @@ const CIRCUITS = [
     country: 'SIN',
     flag: '🇸🇬',
     length: 4.94,
-    laps: 14,
+    laps: 20,
     record: '1:29.525',
-    weather: 'variable',
+    weather: 'dry',
     night: true,
-    width: 12.5,
+    width: 18,
     corners: ['T1-2', 'T3-4', 'T5', 'T7-8', 'T9-10', 'T11-12', 'T13', 'T14', 'T16', 'T17-18', 'T19-20'],
     seg: [
       ['s', 430], ['c', 200, 16], ['c', 60, 62], ['c', 95, -46], ['c', 55, 52], ['c', 85, 36],
@@ -2223,10 +2227,10 @@ const CIRCUITS = [
     country: 'USA',
     flag: '🇺🇸',
     length: 5.513,
-    laps: 12,
+    laps: 20,
     record: '1:32.330',
     weather: 'dry',
-    width: 14.5,
+    width: 20,
     corners: ['T1', 'T2-3', 'T4-5', 'T6-7', 'T8', 'T9-10-11', 'T12', 'T15-16', 'T17-18', 'T19-20'],
     seg: [
       ['s', 540], ['c', 95, 62], ['s', 280], ['c', 210, -26], ['c', 105, 42], ['c', 95, -46],
@@ -2242,10 +2246,10 @@ const CIRCUITS = [
     country: 'MEX',
     flag: '🇲🇽',
     length: 4.304,
-    laps: 15,
+    laps: 20,
     record: '1:15.946',
     weather: 'dry',
-    width: 14,
+    width: 19,
     corners: ['T1', 'T2-3', 'T4', 'T5-6-7', 'T8-9', 'T10-11', 'Peraltada', 'T17', 'T18'],
     seg: [
       ['s', 800], ['c', 65, 72], ['c', 135, -36], ['c', 260, 20], ['c', 95, -42], ['c', 105, 46],
@@ -2261,10 +2265,10 @@ const CIRCUITS = [
     country: 'BRA',
     flag: '🇧🇷',
     length: 4.309,
-    laps: 15,
+    laps: 20,
     record: '1:08.503',
-    weather: 'variable',
-    width: 14,
+    weather: 'dry',
+    width: 19,
     corners: ['T1-2', 'T3-4', 'T5', 'T6-7', 'Senna S', 'T8', 'T9-10', 'T11-12', 'Laranja', 'T13-14', 'T15 Ferradura'],
     seg: [
       ['s', 480], ['c', 200, 24], ['c', 95, -40], ['c', 75, 48], ['c', 65, -50], ['c', 85, 40],
@@ -2280,11 +2284,11 @@ const CIRCUITS = [
     country: 'USA',
     flag: '🇺🇸',
     length: 6.201,
-    laps: 12,
+    laps: 20,
     record: '1:32.312',
     weather: 'dry',
     night: true,
-    width: 13,
+    width: 19,
     corners: ['T1-2', 'T3-4', 'T5', 'T6-7', 'T8-9', 'T10-11', 'T12', 'T14-15', 'T16-17'],
     seg: [
       ['s', 1150], ['c', 210, 16], ['c', 95, -30], ['c', 75, 40], ['c', 105, -20], ['c', 250, 14],
@@ -2300,11 +2304,11 @@ const CIRCUITS = [
     country: 'QAT',
     flag: '🇶🇦',
     length: 5.419,
-    laps: 12,
+    laps: 20,
     record: '1:20.827',
     weather: 'dry',
     night: true,
-    width: 15,
+    width: 20,
     corners: ['T1', 'T2-3', 'T4-5-6-7', 'T8-9', 'T10-11', 'T12-13', 'T14-16', 'T17-19'],
     seg: [
       ['s', 980], ['c', 260, 20], ['c', 105, -46], ['c', 95, 50], ['c', 85, -40], ['c', 70, 34],
@@ -2319,11 +2323,11 @@ const CIRCUITS = [
     country: 'UAE',
     flag: '🇦🇪',
     length: 5.281,
-    laps: 12,
+    laps: 20,
     record: '1:22.824',
     weather: 'dry',
     night: true,
-    width: 15,
+    width: 20,
     corners: ['T1', 'T2-3', 'T4-5', 'T6-7', 'T8', 'T9', 'T10-11', 'T12-13', 'T14-15', 'T16'],
     seg: [
       ['s', 1080], ['c', 155, 20], ['c', 85, -40], ['c', 105, 30], ['c', 70, -35], ['c', 62, 40],
@@ -2954,6 +2958,19 @@ function getTeam(id, series = 'f1') {
   return F1_BY_ID.get(id) || null;
 }
 
+/**
+ * Ruta del escudo de la escudería: PNG con fondo transparente en assets/teams.
+ * Se deduce del id y la categoría, así que no hay que repetirla en los datos.
+ * @param {string|object} team id u objeto de escudería
+ * @param {string} series 'f1' | 'f2'
+ * @returns {string} ruta relativa; cadena vacía si no hay escudo
+ */
+function teamLogo(team, series = 'f1') {
+  const id = typeof team === 'string' ? team : team?.id;
+  if (!id) return '';
+  return `assets/teams/${series === 'f2' ? 'f2' : 'f1'}/${id}.png`;
+}
+
 function teamsFor(series) {
   return series === 'f2' ? F2_TEAMS : F1_TEAMS;
 }
@@ -3004,6 +3021,7 @@ const F1_TEAM_TIERS = [
   __x.F2_STAFF = F2_STAFF;
   __x.F2_OWNERS = F2_OWNERS;
   __x.getTeam = getTeam;
+  __x.teamLogo = teamLogo;
   __x.teamsFor = teamsFor;
   __x.staffFor = staffFor;
   __x.ownerFor = ownerFor;
@@ -3021,15 +3039,60 @@ __registry["js/game/car.js"] = function (__x, __req) {
 const { clamp, lerp, sign, mod, TAU } = __req("js/core/util.js");
 const { inDrsZone, indexAtS } = __req("js/game/track.js");
 
+/* Neumáticos de seco. La degradación se mide en VUELTAS recorridas: cada
+   compuesto tiene una vida útil (`life`) y, al acercarse a ella, pierde
+   rendimiento de golpe. De momento no hay gomas de lluvia ni intermedias. */
 const TYRES = {
-  soft: { id: 'soft', name: 'Blando', color: '#e8112d', grip: 1.055, wear: 1.75, warm: 'alta' },
-  medium: { id: 'medium', name: 'Medio', color: '#f5d000', grip: 1.0, wear: 1.0, warm: 'media' },
-  hard: { id: 'hard', name: 'Duro', color: '#e8e8ea', grip: 0.962, wear: 0.62, warm: 'baja' },
-  intermediate: { id: 'intermediate', name: 'Intermedio', color: '#39b54a', grip: 1.005, wear: 0.9, warm: 'media' },
-  wet: { id: 'wet', name: 'Llanta', color: '#1560bd', grip: 0.945, wear: 0.8, warm: 'alta' },
+  soft: { id: 'soft', name: 'Blando', code: 'C5', color: '#e8112d', life: 7, pace: 1.034, grip: 1.055, falloff: 0.17, warm: 'alta' },
+  medium: { id: 'medium', name: 'Medio', code: 'C3', color: '#f5d000', life: 12, pace: 1, grip: 1, falloff: 0.1, warm: 'media' },
+  hard: { id: 'hard', name: 'Duro', code: 'C2', color: '#e6e8ee', life: 16, pace: 0.966, grip: 0.962, falloff: 0.05, warm: 'baja' },
 };
 
-const TYRE_ORDER = ['soft', 'medium', 'hard', 'intermediate', 'wet'];
+const TYRE_ORDER = ['soft', 'medium', 'hard'];
+
+/** Suaviza de 0 a 1 entre dos umbrales. */
+function smoothstep(from, to, x) {
+  const t = clamp((x - from) / (to - from), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/** Cuánto ha caido ya el compuesto por el desgaste (0 = nuevo, 1 = en su fin). */
+function tyreCliff(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return smoothstep(0.55, 1, clamp(wear, 0, 1)) * t.falloff;
+}
+
+/** Factor de velocidad punta que permite el compuesto con ese desgaste. */
+function tyrePace(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return t.pace * (1 - tyreCliff(tyreId, wear));
+}
+
+/** Factor de agarre lateral con ese desgaste. */
+function tyreGrip(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return t.grip * (1 - tyreCliff(tyreId, wear) * 0.7);
+}
+
+/** Vueltas de vida que le quedan al compuesto. */
+function tyreLapsLeft(tyreId, wear) {
+  const t = TYRES[tyreId] || TYRES.medium;
+  return Math.max(0, t.life * (1 - clamp(wear, 0, 1)));
+}
+
+/**
+ * Acumula la distancia rodada y recalcula el desgaste 0..1 del compuesto.
+ * @param {object} c estado del coche
+ * @param {number} metres metros recorridos en este paso
+ * @param {number} lapLength longitud del circuito en metros
+ */
+function ageTyre(c, metres, lapLength) {
+  c.lapDist = (c.lapDist || 0) + metres;
+  const life = (TYRES[c.tyre] || TYRES.medium).life * (lapLength || 5000);
+  c.tyreWear = clamp(c.lapDist / life, 0, 1.6);
+  c.tyreAge = c.lapDist / (lapLength || 5000);
+  return c.tyreWear;
+}
 
 /** Regulación 2026: gestión de energía con despliegue siempre disponible. */
 const PIT_SPEED_KMH = 80;
@@ -3086,6 +3149,7 @@ function makeCarState(track, entry, options = {}) {
     tyreAge: 0,
     tyreWear: 0,
     tyreTemp: 0.35,
+    lapDist: 0,
 
     /* daños y estado */
     damage: 0,
@@ -3183,11 +3247,11 @@ function stepCar(c, input, track, proj, env = {}) {
   const assists = env.assists || {};
   const weather = env.weather || {};
   const surf = surfaceAt(proj, weather);
-  const tyre = TYRES[c.tyre];
 
   const v = Math.max(0, c.speed);
   const power = powerFactor(c.car) * (0.94 + (c.car.aero - 78) * 0.0012);
-  const topSpeed = maxSpeed(c.car, c.drsOpen) * (weather.wet ? 0.94 : 1);
+  const pace = tyrePace(c.tyre, c.tyreWear);
+  const topSpeed = maxSpeed(c.car, c.drsOpen) * (weather.wet ? 0.94 : 1) * pace;
 
   /* ── Empuje longitudinal ── */
   let accel = 0;
@@ -3224,7 +3288,7 @@ function stepCar(c, input, track, proj, env = {}) {
   let vLong = c.vx * fx + c.vy * fy;
   let vLat = c.vx * rx + c.vy * ry;
 
-  const grip = gripFactor(c.car) * tyre.grip * surf.grip * (c.damage > 0.4 ? 0.92 : 1);
+  const grip = gripFactor(c.car) * tyreGrip(c.tyre, c.tyreWear) * surf.grip * (c.damage > 0.4 ? 0.92 : 1);
   const latBudget = 34 * grip * dt;
   const longUse = clamp(Math.abs(throttle - brake) * 0.7 + brake * 0.4, 0, 1);
   const latCap = latBudget * (1 - longUse * 0.32);
@@ -3243,7 +3307,7 @@ function stepCar(c, input, track, proj, env = {}) {
   c.gear = gear;
   c.rpm = clamp(0.18 + (newSpeed / topSpeed) * 0.82, 0, 1);
   c.tyreTemp = clamp(lerp(c.tyreTemp, 0.4 + longUse * 0.6, dt * 0.6), 0, 1);
-  c.tyreWear = clamp(c.tyreWear + dt * tyre.wear * 0.0075 * (0.4 + longUse), 0, 1);
+  ageTyre(c, newSpeed * dt, track.length);
 
   /* ── ERS ── */
   if (useErs) c.ers = clamp(c.ers - ERS_DEPLOY_RATE * dt, 0, ERS_CAPACITY);
@@ -3257,7 +3321,7 @@ function stepCar(c, input, track, proj, env = {}) {
   /* ── Desgaste y fiabilidad ── */
   if (surf.grip < 0.85) {
     c.offTrackTime += dt;
-    c.tyreWear = clamp(c.tyreWear + dt * 0.02, 0, 1);
+    c.tyreWear = clamp(c.tyreWear + dt * 0.012, 0, 1.6);
     if (c.offTrackTime > 0.9) c.damage = clamp(c.damage + dt * 0.07, 0, 1);
   } else {
     c.offTrackTime = Math.max(0, c.offTrackTime - dt * 2);
@@ -3278,9 +3342,9 @@ function stepAi(c, ctx) {
   const { dt, track, weather = {} } = ctx;
   if (c.retired) return;
   const m = track.points;
-  const tyre = TYRES[c.tyre];
   const surfaceGrip = (weather.wet ? 0.93 : 1) * (c.onTrack ? 1 : 0.72);
-  const grip = gripFactor(c.car) * tyre.grip * surfaceGrip;
+  const grip = gripFactor(c.car) * tyreGrip(c.tyre, c.tyreWear) * surfaceGrip;
+  const pace = tyrePace(c.tyre, c.tyreWear);
 
   /* Velocidad objetivo en función de la curva que viene */
   const ahead = 26;
@@ -3288,8 +3352,8 @@ function stepAi(c, ctx) {
   const i2 = (c.idx + Math.round(ahead / 4.2)) % m.length;
   const k = Math.max(1e-5, Math.abs(m[i2].curv));
   const latAccel = 17.6 * grip * (0.86 + c.skill / 480);
-  const vCurve = clamp(Math.sqrt(latAccel / k), 12, maxSpeed(c.car, false));
-  const vTop = maxSpeed(c.car, c.drsOpen) * 0.985;
+  const vCurve = clamp(Math.sqrt(latAccel / k), 12, maxSpeed(c.car, false) * pace);
+  const vTop = maxSpeed(c.car, c.drsOpen) * 0.985 * pace;
 
   /* Frenada por la distancia a la próxima frenada */
   let target = Math.min(vTop, vCurve);
@@ -3308,8 +3372,7 @@ function stepAi(c, ctx) {
   /* Coche de seguridad: ritmo de fila india */
   if (ctx.scActive) target = Math.min(target, c.scTarget || 24);
 
-  const accel = target > c.speed ? 12.5 * (c.car.power / 90) : -30 * grip;
-  c.speed = Math.max(6, c.speed + accel * dt);
+  const accel = target > c.speed ? 12.5 * (c.car.power / 90) : -30 * grip;  c.speed = Math.max(6, c.speed + accel * dt);
 
   /* Línea objetivo: trazada + anticipación de la frenada + evitación */
   const li = ctx.line[i1] || m[i1];
@@ -3346,17 +3409,17 @@ function stepAi(c, ctx) {
   c.kerb = Math.abs(lat) > p.halfWidth - 0.9 && Math.abs(lat) < p.halfWidth + 1.4;
   if (!c.onTrack) {
     c.offTrackTime += dt;
-    c.tyreWear = clamp(c.tyreWear + dt * 0.01, 0, 1);
+    c.tyreWear = clamp(c.tyreWear + dt * 0.006, 0, 1.6);
   } else {
     c.offTrackTime = Math.max(0, c.offTrackTime - dt * 2);
   }
 
   /* Marcha, ERS, neumáticos */
-  c.gear = clamp(Math.ceil((c.speed / maxSpeed(c.car, false)) * 8), 1, 8);
+  c.gear = clamp(Math.ceil((c.speed / (maxSpeed(c.car, false) * pace)) * 8), 1, 8);
   c.rpm = clamp(0.18 + (c.speed / vTop) * 0.82, 0, 1);
   const useErs = c.ers > 2 && c.speed < vTop * 0.9;
   c.ers = clamp(c.ers + (useErs ? -ERS_DEPLOY_RATE : ERS_RECHARGE_RATE) * dt, 0, ERS_CAPACITY);
-  c.tyreWear = clamp(c.tyreWear + dt * tyre.wear * 0.0055, 0, 1);
+  ageTyre(c, c.speed * dt, track.length);
   c.tyreTemp = clamp(lerp(c.tyreTemp, 0.75, dt * 0.5), 0, 1);
   c.drsZone = !ctx.scActive && inDrsZone(track, c.idx);
   c.drsAvailable = Boolean(c.drsZone);
@@ -3386,6 +3449,11 @@ const TYRE_CHANGE_MS = 2100;
 
   __x.TYRES = TYRES;
   __x.TYRE_ORDER = TYRE_ORDER;
+  __x.tyreCliff = tyreCliff;
+  __x.tyrePace = tyrePace;
+  __x.tyreGrip = tyreGrip;
+  __x.tyreLapsLeft = tyreLapsLeft;
+  __x.ageTyre = ageTyre;
   __x.PIT_SPEED_KMH = PIT_SPEED_KMH;
   __x.ERS_CAPACITY = ERS_CAPACITY;
   __x.ERS_DEPLOY_RATE = ERS_DEPLOY_RATE;
@@ -4033,7 +4101,7 @@ function driverCard(state) {
 /**
  * Lista de entrada para la parrilla con el coche actual del jugador.
  * Las entradas guardan una copia del equipo en el momento de crearse, así que
- * sin esto el desarrollo comprado en el garaje no se notaría en pista.
+ * sin esto el monoplaza que sale a pista podría no ser el de su escudería.
  * @param {object} state estado de carrera
  * @returns {Array<object>}
  */
@@ -4043,6 +4111,23 @@ function gridEntryList(state) {
   const team = state.team;
   if (!team) return list.slice();
   return list.map((entry) => (entry.teamId === state.teamId ? { ...entry, team } : entry));
+}
+
+/**
+ * Limpia una partida guardada por una versión anterior.
+ * El garaje ya no desarrolla el monoplaza, así que se restaura el coche de
+ * fábrica y se borran los campos del antiguo sistema de mejora.
+ * @param {object} state estado de carrera
+ * @returns {object} el mismo estado, ya saneado
+ */
+function hydrateState(state) {
+  if (!state || typeof state !== 'object') return state;
+  if (state.teamDevelopment === undefined && !state.teamUpgraded) return state;
+  const base = getTeam(state.teamId, state.series);
+  if (base && state.team) state.team = { ...state.team, car: { ...base.car } };
+  delete state.teamDevelopment;
+  delete state.teamUpgraded;
+  return state;
 }
 
 function teamCard(state) {
@@ -4100,6 +4185,7 @@ function carStats(state) {
   __x.markNewsRead = markNewsRead;
   __x.driverCard = driverCard;
   __x.gridEntryList = gridEntryList;
+  __x.hydrateState = hydrateState;
   __x.teamCard = teamCard;
   __x.carStats = carStats;
 };
@@ -4567,15 +4653,28 @@ function buildNews(state, round, summary) {
   __x.buildNews = buildNews;
 };
 __registry["js/game/race.js"] = function (__x, __req) {
-// Motor de sesión:Practicas, clasificación (Q1/Q2/Q3) y carrera.
-// Gestiona parrilla, semáforo, IA, paradas, banderas,cronometraje y resultados.
+﻿// Motor de sesiÃ³n:Practicas, clasificaciÃ³n (Q1/Q2/Q3) y carrera.
+// Gestiona parrilla, semÃ¡foro, IA, paradas, banderas,cronometraje y resultados.
 
 const { makeRng } = __req("js/core/rng.js");
 const { buildTrack, projectCar, indexAtS, pointAtS, speedProfile, minimap } = __req("js/game/track.js");
-const { makeCarState, stepCar, stepAi, applyLaunch, maxSpeed, TYRES, ERS_CAPACITY } = __req("js/game/car.js");
+const { makeCarState, stepCar, stepAi, applyLaunch, maxSpeed, TYRES, tyreLapsLeft, ERS_CAPACITY } = __req("js/game/car.js");
 const { clamp, mod, lerp, dist: dist2d } = __req("js/core/util.js");
 
-/* ───────────────────── Duraciones jugables (segundos) ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Reglas de carrera â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+
+/** Toda carrera es de 20 vueltas, en F1 y en F2. */
+const RACE_LAPS = 20;
+/** El sprint es corto: 8 vueltas. */
+const SPRINT_LAPS = 8;
+/** Una sola parada en boxes, es obligatoria. */
+const MAX_PIT_STOPS = 1;
+/** Segundos de penalizaciÃ³n por no parar. */
+const MISSED_PIT_PENALTY_S = 5;
+/** NeumÃ¡ticos disponibles al salir de boxes. */
+const START_TYRES = ['soft', 'medium', 'hard'];
+
+/** Duraciones jugables (segundos) */
 
 const DURATIONS = {
   fp: 240,
@@ -4584,34 +4683,22 @@ const DURATIONS = {
   sprint: 165,
 };
 
-const LENGTH_MODES = {
-  corta: 0.12,
-  media: 0.22,
-  larga: 0.4,
-  completa: 1,
-};
-const LENGTH_LABELS = {
-  corta: 'Corta (12 %)',
-  media: 'Media (22 %)',
-  larga: 'Larga (40 %)',
-  completa: 'Completa (100 %)',
-};
-
-/** Pilotos que pasan de cada segmento de clasificación. */
+/** Pilotos que pasan de cada segmento de clasificaciÃ³n. */
 const QUALI_CUTOFFS = [18, 15, 10];
 
-/* ───────────────────── Construcción ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ ConstrucciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
- * Crea una sesión jugable.
+ * Crea una sesiÃ³n jugable.
  * @param {object} config
- * @param {object} config.circuit definición de circuito (data/circuits.js)
+ * @param {object} config.circuit definiciÃ³n de circuito (data/circuits.js)
  * @param {Array} config.entryList participantes
  * @param {string} config.kind 'fp' | 'quali' | 'sprint' | 'feature'
  * @param {object} config.round ronda del calendario
  * @param {object} config.settings ajustes del juego
  * @param {number} [config.seed]
- * @param {object} [config.grid] posición de salida ya conocida (carrera)
+ * @param {string} [config.startTyre] compuesto elegido por el jugador
+ * @param {object} [config.grid] posiciÃ³n de salida ya conocida (carrera)
  * @param {Array} [config.qualifyingOrder] orden de la Q anterior
  */
 function createSession(config) {
@@ -4619,7 +4706,8 @@ function createSession(config) {
   const track = buildTrack(circuit);
   const rng = makeRng(`${seed}|${kind}|${round.round}`);
   const series = round.series;
-  const weather = makeWeather(circuit, series, rng);
+  const weather = makeWeather(circuit);
+  const isRace = kind === 'feature' || kind === 'sprint';
 
   const state = {
     kind,
@@ -4646,16 +4734,20 @@ function createSession(config) {
     results: null,
     lights: 0,
     lightTimer: 0,
+    lightOffAt: 0,
     safetyCar: { active: false, remaining: 0, queue: [] },
     messages: [],
     fastestLap: { ms: 0, driverId: null },
     flags: { yellow: false, sc: false },
     event: null,
     pitWindowOpen: false,
+    pitDistance: Infinity,
+    playerPenaltyS: 0,
+    maxStops: isRace ? MAX_PIT_STOPS : 2,
     completed: false,
   };
 
-  /* Parrilla: si no hay clasificación previa, se ordena por skill descendente */
+  /* Parrilla: si no hay clasificaciÃ³n previa, se ordena por skill descendente */
   let startOrder = entryList.slice();
   if (grid) {
     const pos = new Map(grid.map((e, i) => [e.driverId, i + 1]));
@@ -4667,8 +4759,15 @@ function createSession(config) {
   }
   state.grid = startOrder.map((e, i) => ({ driverId: e.driverId, position: i + 1 }));
 
-  /* Neumáticos iniciales según el tipo de sesión */
-  const startTyre = kind === 'quali' ? 'soft' : kind === 'fp' ? 'soft' : 'medium';
+  /* Distancia de carrera: 20 vueltas en todos los grandes, 8 en el sprint */
+  const laps = kind === 'sprint' ? SPRINT_LAPS : kind === 'feature' ? RACE_LAPS : 0;
+  state.laps = laps;
+  state.fullLaps = laps;
+
+  /* NeumÃ¡ticos iniciales: el jugador elige en la pantalla previa, la IA con su
+     estrategia. En prÃ¡cticas y clasificaciÃ³n se sale siempre con blandos. */
+  const defaultTyre = kind === 'feature' || kind === 'sprint' ? 'medium' : 'soft';
+  const startTyre = TYRES[config.startTyre] ? config.startTyre : defaultTyre;
   const spacing = kind === 'fp' ? 90 : 9.5;
   const lateral = kind === 'fp' ? 0 : 1.9;
 
@@ -4676,8 +4775,8 @@ function createSession(config) {
     const c = makeCarState(track, entry, { grid: i + 1, tyre: startTyre });
     c.gridPosition = i + 1;
     c.rng = rng.fork(`ai-${entry.driverId}`);
-    c.strategy = makeStrategy(rng.fork(`strat-${entry.driverId}`), kind, track);
-    /* Colocación en pista */
+    c.strategy = makeStrategy(rng.fork(`strat-${entry.driverId}`), kind, state.laps);
+    /* ColocaciÃ³n en pista */
     const back = kind === 'fp' ? -(i * spacing) - 40 : -(i * spacing) - 6;
     const s = mod(back, track.length);
     const p = pointAtS(track, s);
@@ -4700,6 +4799,8 @@ function createSession(config) {
     c.drsAllowed = false;
     c.jumpStart = false;
     c.pitDone = 0;
+    c.pitStops = 0;
+    c.penaltyMs = 0;
     c.pitTimerLeft = 0;
     c.pitting = false;
     c.finished = false;
@@ -4712,27 +4813,33 @@ function createSession(config) {
     c.qualiHistory = [];
     c.reachedSegment = -1;
     c.eliminatedIn = -1;
-    if (!entry.isPlayer) c.skill = entry.skill;
+    if (!entry.isPlayer) {
+      c.skill = entry.skill;
+      if (isRace) c.tyre = c.strategy.tyre;
+    }
     return c;
   });
 
   state.player = state.cars.find((c) => c.isPlayer) || null;
   if (state.player) {
+    const pitLap = plannedPitLap(state.laps, startTyre);
     state.player.tyre = startTyre;
     state.player.skill = state.player.skill || 78;
+    state.player.strategy = {
+      stops: state.maxStops,
+      tyre: startTyre,
+      second: secondTyreFor(state.laps - pitLap),
+      pitLap,
+    };
   }
 
-  /* Distancia de carrera según el modo de longitud elegido */
-  const mode = LENGTH_MODES[settings?.raceLength] ?? LENGTH_MODES.corta;
-  const fullLaps = track.laps;
-  state.laps = Math.max(3, Math.round(fullLaps * (kind === 'sprint' ? mode * 0.7 : mode)));
-  state.fullLaps = fullLaps;
-  state.totalDistance = state.laps * track.length;
-  state.raceDistance = state.totalDistance / 1000;
+  /* Distancia de carrera: 20 vueltas en todos los grandes, 8 en el sprint */
+  state.totalDistance = laps > 0 ? laps * track.length : Infinity;
+  state.raceDistance = laps > 0 ? (laps * track.length) / 1000 : 0;
   state.entries = entryList;
   state.entryFor = (id) => entryList.find((e) => e.driverId === id) || null;
 
-  /* Duración de la sesión */
+  /* DuraciÃ³n de la sesiÃ³n */
   if (kind === 'fp') state.duration = DURATIONS.fp;
   else if (kind === 'quali') state.duration = DURATIONS.quali[0];
   else if (kind === 'sprintQuali') state.duration = DURATIONS.sprintQualiSegment;
@@ -4751,32 +4858,65 @@ function createSession(config) {
   return state;
 }
 
-function makeWeather(circuit, series, rng) {
-  const base = circuit.weather || 'dry';
-  const wet = base === 'wet' || (base === 'variable' && rng.chance(series === 'f2' ? 0.18 : 0.3));
-  const air = Math.round(lerp(wet ? 16 : 24, wet ? 14 : 32, rng.next()));
+/** Sin gomas de lluvia por ahora: todas las sesiones se disputan en seco. */
+function makeWeather(circuit) {
+  const air = Math.round(lerp(24, 32, hash01(circuit.id || 'x') * 0.6));
   return {
-    kind: wet ? 'wet' : 'dry',
-    wet,
-    rain: wet ? clamp(0.35 + rng.next() * 0.5, 0.3, 0.9) : 0,
+    kind: 'dry',
+    wet: false,
+    rain: 0,
     air,
-    track: Math.round(air + (wet ? 2 : 8)),
-    label: wet ? 'Lluvia' : 'Seco',
+    track: Math.round(air + 8),
+    label: 'Seco',
   };
 }
 
-function makeStrategy(rng, kind, track) {
-  if (kind === 'quali' || kind === 'fp' || kind === 'sprintQuali') {
-    return { stops: 0, tyre: 'soft', second: null, pitLap: 0 };
+/** Semilla estable a partir de un texto, para climas reproducibles. */
+function hash01(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  const stops = track.laps > 40 ? (rng.chance(0.65) ? 1 : 2) : 1;
-  const first = rng.weighted(['soft', 'medium', 'hard'], (t) => (t === 'medium' ? 5 : t === 'soft' ? 3 : 2));
-  const pool = first === 'soft' ? ['medium', 'hard'] : first === 'medium' ? ['soft', 'hard'] : ['medium'];
-  const second = stops > 1 ? rng.pick(pool) : rng.pick(pool);
-  return { stops, tyre: first, second, pitLap: 0, planned: false };
+  return ((h >>> 0) % 1000) / 1000;
 }
 
-/* ───────────────────── Arranque de cada tipo ───────────────────── */
+/** Vuelta en la que la IA tiene previsto entrar a boxes. */
+function plannedPitLap(laps, firstTyre) {
+  if (!laps) return 0;
+  const life = TYRES[firstTyre].life;
+  return clamp(Math.round(laps * 0.45), 2, Math.max(2, Math.min(laps - 3, life)));
+}
+
+/**
+ * Compuesto con el que se sale tras la Ãºnica parada obligatoria: el mÃ¡s rÃ¡pido
+ * que aguante las vueltas que quedan hasta meta.
+ */
+function secondTyreFor(remainingLaps = 0) {
+  const need = Math.max(0, remainingLaps);
+  if (need <= TYRES.soft.life) return 'soft';
+  if (need <= TYRES.medium.life) return 'medium';
+  return 'hard';
+}
+
+/**
+ * Estrategia de la IA: una sola parada, y el compuesto inicial tiene que llegar
+ * hasta esa vuelta sin romperse.
+ */
+function makeStrategy(rng, kind, laps) {
+  if (kind !== 'feature' && kind !== 'sprint') {
+    return { stops: 0, tyre: 'soft', second: null, pitLap: 0 };
+  }
+  const planned = clamp(Math.round(laps * 0.45), 2, Math.max(2, laps - 3));
+  /* El primer stint no puede superar la vida del compuesto */
+  const pool = START_TYRES.filter((t) => TYRES[t].life >= planned - 1);
+  const options = pool.length ? pool : ['medium'];
+  const first = rng.weighted(options, (t) => (t === 'medium' ? 6 : t === 'hard' ? 4 : 2));
+  const pitLap = clamp(planned, 2, Math.max(2, Math.min(laps - 3, TYRES[first].life)));
+  return { stops: 1, tyre: first, second: secondTyreFor(laps - pitLap), pitLap };
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Arranque de cada tipo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function startPractice(state) {
   state.phase = 'running';
@@ -4791,7 +4931,7 @@ function startPractice(state) {
     c.lapStartClock = 0;
     c.sectorStart = 0;
   }
-  state.messages.push({ text: 'Libres: no hay límite de vueltas. Recopila datos y vuelve al túnel.', kind: 'info' });
+  state.messages.push({ text: 'Libres: no hay lÃ­mite de vueltas. Recopila datos y vuelve al tÃºnel.', kind: 'info' });
 }
 
 function startQualifying(state) {
@@ -4825,7 +4965,9 @@ function startQualifying(state) {
 function startRace(state) {
   state.phase = 'countdown';
   state.lights = 0;
-  state.lightTimer = 2.2;
+  /* Las cinco luces rojas se encienden una a una: cuando se apagan, todos salen */
+  state.lightTimer = 3.2;
+  state.lightOffAt = 0;
   state.clock = 0;
   const rng = state.rng;
   for (const c of state.cars) {
@@ -4839,16 +4981,20 @@ function startRace(state) {
     c.sector = 1;
     c.reactionRoll = rng.next();
   }
-  state.messages.push({ text: `Semáforo de ${state.cars.length} coches. A fondo en el último.`, kind: 'start' });
+  const tyre = TYRES[state.player?.tyre || 'medium'];
+  state.messages.push({
+    text: `Parrilla: ${state.cars.length} coches, ${state.laps} vueltas y una parada obligatoria. NeumÃ¡tico ${tyre.name}.`,
+    kind: 'start',
+  });
 }
 
-/* ───────────────────── Bucle principal ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Bucle principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
- * Avanza la sesión.
+ * Avanza la sesiÃ³n.
  * @param {object} state
  * @param {number} dt segundos reales
- * @param {object|null} input estado de conducción del jugador
+ * @param {object|null} input estado de conducciÃ³n del jugador
  */
 function updateSession(state, dt, input) {
   if (state.completed) return;
@@ -4871,17 +5017,22 @@ function updateSession(state, dt, input) {
 
 function tickCountdown(state, dt) {
   state.lightTimer -= dt;
-  if (state.lightTimer <= 0) {
-    state.lights = Math.min(5, state.lights + 1);
-    state.lightTimer = state.lights < 5 ? 0.85 + state.rng.float(0, 0.5) : 0.9;
-    if (state.lights >= 5) {
-      /* Cinco luces y se apagan */
-      state.phase = 'green';
-      state.greenAt = state.clock;
-      state.greenTimer = state.rng.float(0.7, 1.5);
-      state.lights = 0;
-    }
+  if (state.lightTimer > 0) return;
+  if (state.lights < 5) {
+    state.lights += 1;
+    /* Entre luz y luz hay algo menos de un segundo, como en la FIA */
+    state.lightTimer = 0.75 + state.rng.float(0, 0.45);
+    if (state.lights === 5) state.lightTimer = 1.1 + state.rng.float(0, 0.9);
+    return;
   }
+  /* Las cinco estÃ¡n encendidas: se apagan todas y la carrera sale */
+  state.phase = 'green';
+  state.greenAt = state.clock;
+  state.greenTimer = state.rng.float(0.7, 1.5);
+  state.lights = 0;
+  state.lightOffAt = state.clock;
+  state.startedAt = state.clock;
+  state.messages.push({ text: 'Â¡SemÃ¡foro verde! Todos fuera.', kind: 'green' });
 }
 
 function tickCars(state, dt, input, isRace) {
@@ -4921,7 +5072,7 @@ function tickCars(state, dt, input, isRace) {
         car.lapStartClock = state.clock;
         car.sectorStart = state.clock;
         state.messages.push({
-          text: wasJump ? 'Salida anticipada: penalización de la FIA.' : 'Semáforo verde, adelante.',
+          text: wasJump ? 'Salida anticipada: penalizaciÃ³n de la FIA.' : 'SemÃ¡foro verde, adelante.',
           kind: wasJump ? 'penalty' : 'green',
         });
       }
@@ -4957,7 +5108,7 @@ function tickCars(state, dt, input, isRace) {
       if (!car.started) {
         const good = car.reactionRoll < 0.22 + car.skill / 430;
         /* La ventana de arranque se mide desde el verde, no por fase: si el
-           semáforo ya pasó a verde-perdido, quien reaccionó tarde aún sale */
+           semÃ¡foro ya pasÃ³ a verde-perdido, quien reaccionÃ³ tarde aÃºn sale */
         const elapsed = state.greenAt == null ? 0 : state.clock - state.greenAt;
         if (elapsed > 0 && (good || elapsed > 1.5)) {
           applyLaunch(car, track, good ? 0.9 : 0.35, car.rng);
@@ -4979,7 +5130,7 @@ function tickCars(state, dt, input, isRace) {
   }
 }
 
-/** Referencias para que la IA se desvíe y defienda. */
+/** Referencias para que la IA se desvÃ­e y defienda. */
 function buildAiRefs(state) {
   const refs = new Map();
   const live = state.cars.filter((c) => !c.retired && !c.finished && c.started);
@@ -4990,7 +5141,7 @@ function buildAiRefs(state) {
     for (const o of live) {
       if (o === c || o.retired) continue;
       const gap = c.dist - o.dist;
-      /* Solo estorban los coches que están delante y en la misma trazada */
+      /* Solo estorban los coches que estÃ¡n delante y en la misma trazada */
       const lat = Math.abs(c.lateral - o.lateral);
       if (gap > 0 && gap < 30 && lat < 3.4) {
         found = true;
@@ -5006,7 +5157,7 @@ function buildAiRefs(state) {
   return refs;
 }
 
-/* Un monoplaza mide unos 2 m de ancho: dos coches en fila no están tocándose */
+/* Un monoplaza mide unos 2 m de ancho: dos coches en fila no estÃ¡n tocÃ¡ndose */
 const CAR_CONTACT = 2.6;
 
 /** Contacts between cars: lateral push, no violent crashes. */
@@ -5025,7 +5176,7 @@ function collideWithField(state, car) {
       other.x -= nx * push * 0.7;
       other.y -= ny * push * 0.7;
     }
-    /* Transfer of speed: el que viene por detrás pierde, y solo en la medida
+    /* Transfer of speed: el que viene por detrÃ¡s pierde, y solo en la medida
        del solape, para que un tren de coches no frene a todos cada fotograma */
     const closing = car.speed - other.speed;
     if (closing > 3) {
@@ -5040,11 +5191,11 @@ function collideWithField(state, car) {
   }
 }
 
-/* ───────────────────── Progreso: vueltas, sectores, banderas ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Progreso: vueltas, sectores, banderas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function tickSessionProgress(state, dt) {
-  /* Solo las sesiones de clasificación se cortan por tiempo: las carreras y los
-     sprints terminan cuando el líder cruza la meta (véase finishRacers) */
+  /* Solo las sesiones de clasificaciÃ³n se cortan por tiempo: las carreras y los
+     sprints terminan cuando el lÃ­der cruza la meta (vÃ©ase finishRacers) */
   const isQuali = state.kind === 'quali' || state.kind === 'sprintQuali';
   if (state.phase !== 'running') return;
 
@@ -5161,6 +5312,7 @@ function closeQualifyingSegment(state) {
 function tickRaceProgress(state, dt) {
   const { track } = state;
   if (state.phase === 'formation' || state.phase === 'countdown') return;
+  pitAdvice(state);
 
   for (const c of state.cars) {
     if (c.retired) continue;
@@ -5180,8 +5332,9 @@ function tickRaceProgress(state, dt) {
       c.sector = 1;
       if (c.isPlayer) {
         const total = state.laps;
+        const left = tyreLapsLeft(c.tyre, c.tyreWear);
         state.messages.push({
-          text: `Vuelta ${c.lap}/${total} · ${formatMs(lapMs)}${c.lap === 1 ? ' (vuelta rápida)' : ''}`,
+          text: `Vuelta ${c.lap}/${total} Â· ${formatMs(lapMs)} Â· ${TYRES[c.tyre].name} (${left.toFixed(1)} vueltas)${c.lap === 1 ? ' (vuelta rÃ¡pida)' : ''}`,
           kind: c.bestLapMs === lapMs ? 'good' : 'info',
         });
         if (state.safetyCar.active) state.messages.push({ text: 'Cierre del coche de seguridad. Acelera.', kind: 'sc' });
@@ -5195,9 +5348,20 @@ function tickRaceProgress(state, dt) {
       c.finished = true;
       c.finishTime = state.clock;
       c.classified = c.position;
+    /* La parada es obligatoria: el que cruza sin parar pierde cinco segundos */
+    if (c.pitStops < state.maxStops) {
+      c.penaltyMs = MISSED_PIT_PENALTY_S * 1000;
+      c.penaltyAdded = true;
       if (c.isPlayer) {
-        state.messages.push({ text: 'Bandera a cuadros. Entra en boxes y termina la vuelta lenta.', kind: 'finish' });
+        state.playerPenaltyS = MISSED_PIT_PENALTY_S;
+        state.messages.push({
+          text: `Bandera a cuadros sin parar: +${MISSED_PIT_PENALTY_S} s de penalizaciÃ³n en la clasificaciÃ³n.`,
+          kind: 'penalty',
+        });
       }
+    } else if (c.isPlayer) {
+      state.messages.push({ text: 'Bandera a cuadros: entras en boxes y terminas la vuelta lenta.', kind: 'finish' });
+    }
     }
 
     /* IA: una vez finishes, circulates at slower pace */
@@ -5225,9 +5389,12 @@ function tickRaceProgress(state, dt) {
 
 function aiPitLogic(state, c) {
   const st = c.strategy;
+  /* El jugador entra en boxes cuando pulsa P, nunca automÃ¡ticamente */
+  if (c.isPlayer) return;
   if (!st || st.stops === 0 || c.retired || c.finished) return;
-  const plannedLap = Math.round(state.laps * (0.42 + (c.skill - 70) / 220));
-  const lap = c.lap;
+  const plannedLap = st.pitLap || Math.round(state.laps * 0.45);
+  /* Ajuste por Conductividad: los coches rÃ¡pidos entran algo antes */
+  const lap = c.lap + (c.skill > 84 ? 0 : c.skill < 74 ? 1 : 0);
   if (lap >= plannedLap && c.pitDone < st.stops && c.dist > trackLapDistance(state)) {
     enterPit(state, c, true);
   }
@@ -5237,14 +5404,38 @@ function trackLapDistance(state) {
   return state.track.length * 0.4;
 }
 
+/** Avisa al jugador de la parada obligatoria y de la vida que le queda. */
+function pitAdvice(state) {
+  const p = state.player;
+  if (!p || p.retired || p.finished || state.kind !== 'feature' && state.kind !== 'sprint') return;
+  if (p.pitStops >= state.maxStops) {
+    if (p.pitAdvice !== 'done') {
+      p.pitAdvice = 'done';
+      state.messages.push({ text: 'Parada hecha. A la vuelta con el compound nuevo.', kind: 'pit' });
+    }
+    return;
+  }
+  const left = tyreLapsLeft(p.tyre, p.tyreWear);
+  const remaining = Math.max(0, state.laps - p.lap);
+  if (left <= 2.2 && remaining > 1) {
+    if (p.pitAdvice !== 'now') {
+      p.pitAdvice = 'now';
+      state.messages.push({ text: `Â¡NeumÃ¡tico al lÃ­mite! Entra en boxes (te quedan ${left.toFixed(1)} vueltas de vida).`, kind: 'pit' });
+    }
+  } else if (remaining <= 6 && p.pitAdvice !== 'late') {
+    p.pitAdvice = 'late';
+    state.messages.push({ text: `Quedan ${remaining} vueltas y aÃºn no has parado: penalizaciÃ³n de ${MISSED_PIT_PENALTY_S} s.`, kind: 'penalty' });
+  }
+}
+
 function maybeMechanical(state, c) {
   if (c.retired || c.finished) return;
   const base = (100 - c.car.reliability) / 100;
   const risk = base * 0.012 * (0.4 + c.damage);
   if (state.rng.next() < risk) {
-    retireCar(state, c, 'avería mecánica');
+    retireCar(state, c, 'averÃ­a mecÃ¡nica');
   } else if (c.damage >= 0.92 && state.rng.next() < 0.25) {
-    retireCar(state, c, 'daño irreparable');
+    retireCar(state, c, 'daÃ±o irreparable');
   }
 }
 
@@ -5254,7 +5445,7 @@ function retireCar(state, car, reason) {
   car.retireReason = reason;
   car.speed = 0;
   if (car.isPlayer) {
-    state.messages.push({ text: `Abandono: ${reason}. Pulsa Intro para volver al menú.`, kind: 'dnf' });
+    state.messages.push({ text: `Abandono: ${reason}. Pulsa Intro para volver al menÃº.`, kind: 'dnf' });
     state.playerOut = true;
   } else {
     state.messages.push({ text: `${car.name} abandona (${reason}).`, kind: 'other' });
@@ -5287,17 +5478,30 @@ function exitSafetyCar(state) {
   state.messages.push({ text: 'Pista verde. Se reanuda la carrera.', kind: 'green' });
 }
 
-/* ───────────────────── Parada en boxes ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Parada en boxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function enterPit(state, car, forced = false) {
-  if (car.pitting || car.pitStops >= 3) return false;
+  if (car.pitting) return false;
+  const maxStops = state.maxStops ?? MAX_PIT_STOPS;
+  if (car.pitStops >= maxStops) {
+    if (car.isPlayer) {
+      state.messages.push({
+        text: maxStops === 1 ? 'Solo puedes parar una vez: la parada obligatoria ya estÃ¡ hecha.' : 'No te quedan mÃ¡s paradas en esta sesiÃ³n.',
+        kind: 'warn',
+      });
+    }
+    return false;
+  }
   if (!forced && car.speed > 34) return false;
+  const newTyre = nextTyre(car.strategy, car);
   car.pitting = true;
   car.pitTimerLeft = forced ? 2.6 + state.rng.float(0, 1.2) : 2.2;
   car.pitStops += 1;
   car.pitDone = (car.pitDone || 0) + 1;
   car.pitLap = Math.max(1, Math.floor(car.dist / state.track.length));
-  if (car.isPlayer) state.messages.push({ text: 'Parada en boxes: cambio de neumáticos.', kind: 'pit' });
+  if (car.isPlayer) {
+    state.messages.push({ text: `Parada en boxes: montamos ${TYRES[newTyre].name} (vida ${TYRES[newTyre].life} vueltas).`, kind: 'pit' });
+  }
   return true;
 }
 
@@ -5328,17 +5532,19 @@ function tickPit(state, car, dt) {
     car.tyre = nextTyre(car.strategy, car);
     car.tyreWear = 0;
     car.tyreAge = 0;
+    car.lapDist = 0;
     car.tyreTemp = 0.3;
   }
 }
 
+/* Con una sola parada el compuesto nuevo es el que fija la estrategia. */
 function nextTyre(strategy, car) {
-  if (!strategy) return 'medium';
-  if (car.pitDone <= 1) return strategy.second || 'medium';
+  if (!strategy) return car?.isPlayer ? secondTyreFor(0) : 'medium';
+  if (car.pitDone <= 1) return strategy.second || secondTyreFor(strategy.tyre);
   return 'soft';
 }
 
-/* ───────────────────── Entrada del jugador ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Entrada del jugador â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function consumeEdgeInput(state, input) {
   if (!input) return;
@@ -5348,7 +5554,7 @@ function consumeEdgeInput(state, input) {
       const near = state.track.pit;
       const d = nearPitDistance(state.track, p.x, p.y);
       if (d < near.halfWidth + 14 || p.speed < 12) enterPit(state, p);
-      else state.messages.push({ text: 'Pit stop: acércate más a la entrada de boxes.', kind: 'warn' });
+      else state.messages.push({ text: 'Pit stop: acÃ©rcate mÃ¡s a la entrada de boxes.', kind: 'warn' });
     }
   }
   if (input.rescue) {
@@ -5382,14 +5588,17 @@ function rescue(state, car) {
   if (car.isPlayer) state.messages.push({ text: 'Coche recuperado por el equipo de seguridad.', kind: 'info' });
 }
 
-/* ───────────────────── Orden, posiciones yolded gaps ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Orden, posiciones y diferencias â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function sortOrder(state) {
   const list = state.cars.slice();
   list.sort((a, b) => {
     if (a.retired !== b.retired) return a.retired ? 1 : -1;
     if (a.finished !== b.finished) return a.finished ? -1 : 1;
-    if (a.finished && b.finished) return a.finishTime - b.finishTime;
+    /* Quien no parÃ³ pierde cinco segundos depenalizaciÃ³n */
+    if (a.finished && b.finished) {
+      return a.finishTime + (a.penaltyMs || 0) - (b.finishTime + (b.penaltyMs || 0));
+    }
     return b.dist - a.dist;
   });
   list.forEach((c, i) => {
@@ -5405,13 +5614,19 @@ function updateGaps(state) {
     const ahead = i > 0 ? list[i - 1] : null;
     const behind = i < list.length - 1 ? list[i + 1] : null;
     const v = Math.max(12, c.speed);
-    c.gaps.ahead = ahead ? (ahead.dist - c.dist) / v : 0;
+    if (ahead && ahead.finished && c.finished) {
+      const t = (ahead.finishTime + (ahead.penaltyMs || 0)) - (c.finishTime + (c.penaltyMs || 0));
+      c.gaps.ahead = Math.max(0, t);
+      c.intervalMs = Math.round(t * 1000);
+    } else {
+      c.gaps.ahead = ahead ? (ahead.dist - c.dist) / v : 0;
+      c.intervalMs = ahead ? Math.round((ahead.dist - c.dist) * 1000 / v) : 0;
+    }
     c.gaps.behind = behind ? (c.dist - behind.dist) / Math.max(12, behind.speed) : 0;
-    c.intervalMs = ahead ? Math.round((ahead.dist - c.dist) * 1000 / v) : 0;
   }
 }
 
-/* ───────────────────── Cierre ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Cierre â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function finishSession(state, extra = {}) {
   if (state.completed) return;
@@ -5426,15 +5641,24 @@ function finishSession(state, extra = {}) {
 
   let entries;
   if (isRace) {
-    /* El intervalo en carrera es la distancia recorrida; en la clasificación
+    /* La parada es obligatoria: al cerrar la sesiÃ³n se comprueba que todo el
+       que haya cruzado meta la haya hecho, y se aplica la penalizaciÃ³n */
+    for (const c of state.cars) {
+      if (!c.finished || c.pitStops >= state.maxStops) continue;
+      c.penaltyMs = MISSED_PIT_PENALTY_S * 1000;
+      if (c.isPlayer) state.playerPenaltyS = MISSED_PIT_PENALTY_S;
+    }
+    sortOrder(state);
+    state.order.forEach((c) => { c.classified = c.position; });
+    /* El intervalo en carrera es la distancia recorrida; en la clasificaciÃ³n
        final lo que cuenta es el tiempo de meta, y el resto va por intervalos */
     const leader = state.order[0];
-    const leaderFinish = leader.finishTime || state.clock;
+    const leaderFinish = (leader.finishTime || state.clock) + (leader.penaltyMs || 0);
     entries = state.order.map((c, i) => {
       const fl = state.fastestLap.driverId === c.driverId ? 1 : 0;
       let gapMs = null;
       if (i === 0) gapMs = 0;
-      else if (c.finished && leader.finished) gapMs = Math.round((c.finishTime - leaderFinish) * 1000);
+      else if (c.finished && leader.finished) gapMs = Math.round((c.finishTime + (c.penaltyMs || 0) - leaderFinish) * 1000);
       else if (!c.retired) gapMs = c.intervalMs;
       return {
         driverId: c.driverId,
@@ -5452,6 +5676,7 @@ function finishSession(state, extra = {}) {
         lastLapMs: c.lastLapMs,
         fastestLap: Boolean(fl),
         pitStops: c.pitStops,
+        penaltyMs: c.penaltyMs || 0,
         tyre: c.tyre,
         dsq: c.retired,
         retired: c.retired,
@@ -5482,8 +5707,8 @@ function finishSession(state, extra = {}) {
       dsq: !c.bestLapMs,
     }));
   } else {
-    /* Clasificación final: todos los pilotos, ordenados por el segmento
-       más profundo al que llegaron y por su mejor tiempo en él */
+    /* ClasificaciÃ³n final: todos los pilotos, ordenados por el segmento
+       mÃ¡s profundo al que llegaron y por su mejor tiempo en Ã©l */
     const last = state.segmentsDone[state.segmentsDone.length - 1];
     const gridPos = new Map((last?.rows || []).slice(0, 10).map((r) => [r.driverId, r.position]));
     const rows = state.cars.slice().sort((a, b) => {
@@ -5530,7 +5755,7 @@ function finishSession(state, extra = {}) {
   };
 }
 
-/** Obliga a terminar la sesión (el jugador pulsa Intro en el podio). */
+/** Obliga a terminar la sesiÃ³n (el jugador pulsa Intro en el podio). */
 function endSessionNow(state) {
   finishSession(state);
   return state.results;
@@ -5544,11 +5769,15 @@ function formatMs(ms) {
 
 
 
+
   __x.TYRES = TYRES;
   __x.ERS_CAPACITY = ERS_CAPACITY;
+  __x.RACE_LAPS = RACE_LAPS;
+  __x.SPRINT_LAPS = SPRINT_LAPS;
+  __x.MAX_PIT_STOPS = MAX_PIT_STOPS;
+  __x.MISSED_PIT_PENALTY_S = MISSED_PIT_PENALTY_S;
+  __x.START_TYRES = START_TYRES;
   __x.DURATIONS = DURATIONS;
-  __x.LENGTH_MODES = LENGTH_MODES;
-  __x.LENGTH_LABELS = LENGTH_LABELS;
   __x.QUALI_CUTOFFS = QUALI_CUTOFFS;
   __x.createSession = createSession;
   __x.updateSession = updateSession;
@@ -6145,15 +6374,20 @@ function assemble(def, radiusFactor, spacing = 4.2) {
   }
   smoothField(pts, 'curv', 5, 2);
 
-  const baseWidth = def.width || 13.5;
+  /* Trazado ancho: 18-20 m de asfalto, como en los trazados actuales. Las
+     zonas lentas se ensanchan un poco más y las rápidas se estrechan menos. */
+  const baseWidth = def.width || 19;
   for (let i = 0; i < m; i++) {
     const p = pts[i];
     const radius = Math.max(25, 1 / Math.max(1e-5, Math.abs(p.curv)));
     p.radius = radius;
     const fast = clamp((radius - 90) / 700, 0, 1);
     const slow = clamp((190 - radius) / 160, 0, 1);
-    p.halfWidth = baseWidth * (0.5 - 0.05 * fast + 0.12 * slow);
-    p.kerb = radius < 145 ? 1 : 0;
+    p.halfWidth = baseWidth * (0.5 - 0.03 * fast + 0.1 * slow);
+    p.kerb = radius < 150 ? 1 : 0;
+    /* Zona de escapatoria: hay grava en las curvas lentas y asfalto liso en
+       el resto, para que salirse no sea siempre lo mismo */
+    p.runoff = slow > 0.35 ? 'gravel' : fast > 0.5 ? 'asphalt' : 'grass';
   }
   smoothField(pts, 'halfWidth', 6, 2);
 
@@ -6598,13 +6832,14 @@ async function navigate(id) {
 }
 
 /** Entra en la aplicación con la partida del hueco indicado. */
-function startCareer(slotIndex) {
+async function startCareer(slotIndex) {
   const data = readSlot(slotIndex);
   if (!data) {
     refreshMenuCards();
     return;
   }
-  ctx.career = data.state;
+  const { hydrateState } = await __lazy("js/game/career.js");
+  ctx.career = hydrateState(data.state);
   ctx.slot = slotIndex;
   hideMenu();
   navigate('paddock');
@@ -6722,6 +6957,8 @@ __registry["js/render/hud.js"] = function (__x, __req) {
 const { el, formatTime, formatGap } = __req("js/ui/dom.js");
 const { Minimap } = __req("js/render/minimap.js");
 const { TYRE_STYLE } = __req("js/render/palette.js");
+const { TYRES } = __req("js/game/car.js");
+const { clamp } = __req("js/core/util.js");
 
 const SECTOR_LABELS = ['S1', 'S2', 'S3'];
 
@@ -6767,14 +7004,18 @@ class Hud {
 
     this.tyreRow = el('div.hud-box', null, [
       el('div.hud-tyre', null, Array.from({ length: 4 }, () => el('i'))),
+      el('div.hud-tyre-label', { text: 'C3' }),
       el('div.hud-ers', null, el('i')),
       el('div.hud-drs', { text: 'DRS' }),
     ]);
     this.tyreCells = [...this.tyreRow.querySelectorAll('.hud-tyre i')];
+    this.tyreLabel = this.tyreRow.querySelector('.hud-tyre-label');
     this.ersBar = this.tyreRow.querySelector('.hud-ers i');
     this.drsLabel = this.tyreRow.querySelector('.hud-drs');
 
     this.messages = el('div.hud-box.hud-msg', { text: '' });
+    this.pit = el('div.hud-pit', { text: '' });
+    this.pit.style.display = 'none';
     this.lights = el('div.hud-lights', null, Array.from({ length: 5 }, () => el('i')));
     this.banner = el('div.hud-banner', { text: '' });
     this.banner.style.display = 'none';
@@ -6784,7 +7025,7 @@ class Hud {
     this.mapCanvas.style.height = '172px';
 
     this.root.append(
-      el('div.hud-tl', null, [this.posBox, this.timing]),
+      el('div.hud-tl', null, [this.posBox, this.timing, this.pit]),
       el('div.hud-tr', null, [this.messages]),
       el('div.hud-bl', null, [this.speedBox, this.gearBox, this.tyreRow]),
       el('div.hud-br', null, [this.standings, this.mapCanvas]),
@@ -6845,6 +7086,7 @@ class Hud {
     this.updateStandings(state);
     this.updateBanner(state);
     this.updateLights(state);
+    this.updatePit(state);
     this.updateMessages(state);
 
     if (this.minimapVisible) this.minimap.draw(state);
@@ -6872,29 +7114,28 @@ class Hud {
 
   updateTyres(p) {
     const style = TYRE_STYLE[p.tyre] || TYRE_STYLE.medium;
-    const wear = Math.min(2, Math.floor((p.tyreWear || 0) / 34));
+    const t = TYRES[p.tyre] || TYRES.medium;
+    const life = Math.max(1, t.life);
+    const used = clamp((p.tyreWear || 0) * life, 0, life);
+    const wear = used >= life - 1 ? 2 : used >= life * 0.55 ? 1 : 0;
     for (const cell of this.tyreCells) {
       cell.className = wear > 0 ? `wear-${wear}` : '';
       cell.style.background = wear > 0 ? '' : style.color;
     }
+    this.tyreLabel.textContent = `${style.label} · ${Math.max(0, life - used).toFixed(1)}v`;
   }
 
   updateStandings(state) {
     const order = state.order || [];
-    const cars = state.cars || [];
     const me = state.player;
-    const live = cars
-      .filter((c) => !c.retired)
-      .slice()
-      .sort((a, b) => order.indexOf(a.driverId) - order.indexOf(b.driverId));
+    const live = order.filter((c) => !c.retired);
     const shown = live.slice(0, 5);
-    const meIdx = order.indexOf(me?.driverId);
-    if (meIdx >= 5 && me && !me.retired) shown.push(me);
+    if (me && !me.retired && live.indexOf(me) >= 5) shown.push(me);
     this.standings.textContent = '';
     for (const car of shown) {
       if (!car || car.retired) continue;
-      const pos = order.indexOf(car.driverId) + 1;
-      const gap = pos === 1 ? null : (car.gaps?.[me?.driverId] ?? null);
+      const pos = car.position || live.indexOf(car) + 1;
+      const gap = pos === 1 ? null : car.gaps?.ahead ?? null;
       this.standings.append(el('div.r', { class: car.isPlayer ? 'me' : '' }, [
         el('span.p', { text: String(pos) }),
         el('span', { text: car.short || String(car.name || '').split(' ').pop() }),
@@ -6927,14 +7168,35 @@ class Hud {
     this.banner.className = `hud-banner ${kind}`;
   }
 
+  /** Aviso de la parada obligatoria: queda o hecha, con la tecla P. */
+  updatePit(state) {
+    const p = state.player;
+    if (!this.pit) return;
+    const isRace = state.kind === 'feature' || state.kind === 'sprint';
+    if (!isRace || !p || p.retired || p.finished) {
+      this.pit.style.display = 'none';
+      return;
+    }
+    const done = p.pitStops >= (state.maxStops || 1);
+    this.pit.style.display = '';
+    this.pit.className = `hud-pit${done ? ' ok' : p.pitAdvice === 'late' || p.pitAdvice === 'now' ? ' warn' : ''}`;
+    this.pit.textContent = done
+      ? `Parada hecha (v${p.pitLap})`
+      : `Parada obligatoria · P · Quedan ${Math.max(0, state.laps - p.lap)} vueltas`;
+  }
+
   updateLights(state) {
-    if (state.phase !== 'countdown') {
+    const counting = state.phase === 'countdown';
+    const justGreen = state.phase === 'green' && state.greenTimer > 0;
+    if (!counting && !justGreen) {
       this.lights.style.display = 'none';
       return;
     }
     this.lights.style.display = '';
-    const lit = state.lights || 0;
+    const lit = counting ? state.lights || 0 : 0;
+    this.lights.classList.toggle('out', !counting);
     [...this.lights.children].forEach((cell, i) => cell.classList.toggle('on', i < lit));
+    this.lights.dataset.text = counting ? 'SALIDA' : '¡YA!';
   }
 
   updateMessages(state) {
@@ -7237,11 +7499,9 @@ const TYRE_STYLE = {
   soft: { color: '#e8112d', label: 'C5' },
   medium: { color: '#f5d000', label: 'C3' },
   hard: { color: '#e6e8ee', label: 'C2' },
-  intermediate: { color: '#39b54a', label: 'C4' },
-  wet: { color: '#1560bd', label: 'W' },
 };
 
-const TYRE_ORDER = ['soft', 'medium', 'hard', 'intermediate', 'wet'];
+const TYRE_ORDER = ['soft', 'medium', 'hard'];
 
 /** Convierte «#rrggbb» en «r, g, b» para usar con rgba(). */
 function rgb(hex) {
@@ -7312,9 +7572,9 @@ __registry["js/render/track-view.js"] = function (__x, __req) {
 const { ASPHALT, ASPHALT_DARK, CARBON, GRASS, KERB_BLUE, KERB_RED, WHITE, alpha, readableOn, teamColor, teamSecondary } = __req("js/render/palette.js");
 
 const CAMERAS = {
-  1: { zoom: 2.4, name: 'Cockpit' },
-  2: { zoom: 1.5, name: 'Cámara alta' },
-  3: { zoom: 0.9, name: 'Cenital' },
+  1: { zoom: 3.6, name: 'Cockpit' },
+  2: { zoom: 2.4, name: 'Cámara alta' },
+  3: { zoom: 1.15, name: 'Cenital' },
   4: { zoom: 0, name: 'Completa' },
 };
 
@@ -7421,7 +7681,9 @@ class TrackView {
     const p = state?.player;
     if (this.camera === 4 || !p) return { zoom: full, x: this.track.center.x, y: this.track.center.y, rotate: false };
     const cfg = CAMERAS[this.camera];
-    const ahead = 26 + p.speed * 0.55;
+    /* Se mira más lejos cuanto más rápido va el coche, y en el cockpit la
+       cámara va pegada al morro para que la pista se vea ancha */
+    const ahead = (this.camera === 1 ? 6 : 18) + p.speed * 0.5;
     const x = p.x + Math.cos(p.angle) * ahead;
     const y = p.y + Math.sin(p.angle) * ahead;
     const zoom = cfg.zoom > 1 ? Math.max(full, 1.15 * cfg.zoom) : Math.max(full, cfg.zoom);
@@ -7500,11 +7762,110 @@ class TrackView {
     // Pianos.
     this.drawKerbs(ctx, visible);
 
+    // Escapatorias de fuera de pista: grava, asfalto o hierba.
+    this.drawRunoff(ctx, visible);
+
+    // Tribunas y estructuras al borde del circuito.
+    this.drawStands(ctx, visible);
+
+    // Pórtico de salida con el semáforo.
+    this.drawGantry(ctx, state);
+
     // Carril de boxes.
     this.drawPitLane(ctx);
 
     // Cebra de boxes.
     if (state && state.pitWindowOpen) this.drawPitBox(ctx, state);
+  }
+
+  /** Franja de escapatoria a ambos lados del asfalto. */
+  drawRunoff(ctx, visible) {
+    const pts = this.track.points;
+    const bands = [
+      { from: 1.0, to: 6.5, colour: 'rgba(120, 108, 88, .85)' },
+      { from: 6.5, to: 13, colour: 'rgba(30, 48, 32, .9)' },
+    ];
+    for (const band of bands) {
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        let started = false;
+        for (const i of visible) {
+          const p = pts[i];
+          if (!p) continue;
+          const gravel = p.runoff === 'gravel';
+          const w = p.halfWidth + (band.from === 1.0 && gravel ? band.to : band.from);
+          const x = p.x + p.nx * w * side;
+          const y = p.y + p.ny * w * side;
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        for (let k = visible.length - 1; k >= 0; k--) {
+          const p = pts[visible[k]];
+          if (!p) continue;
+          const gravel = p.runoff === 'gravel';
+          const w = p.halfWidth + (band.to === 6.5 && gravel ? band.to : band.to);
+          ctx.lineTo(p.x + p.nx * w * side, p.y + p.ny * w * side);
+        }
+        if (!started) continue;
+        ctx.closePath();
+        ctx.fillStyle = band.colour;
+        ctx.fill();
+      }
+    }
+  }
+
+  /** Tribunas y gradas a lo largo del trazado, para que la pista no quede vacía. */
+  drawStands(ctx, visible) {
+    const pts = this.track.points;
+    for (const side of [-1, 1]) {
+      for (let k = 0; k < visible.length; k += 26) {
+        const p = pts[visible[k]];
+        if (!p) continue;
+        const off = p.halfWidth + 16;
+        ctx.save();
+        ctx.translate(p.x + p.nx * off * side, p.y + p.ny * off * side);
+        ctx.rotate(Math.atan2(p.dirY, p.dirX));
+        /* Grada oscura con las filas de asientos */
+        ctx.fillStyle = 'rgba(18, 24, 34, .92)';
+        ctx.fillRect(-7, -2.5, 14, 5);
+        ctx.fillStyle = 'rgba(40, 52, 70, .9)';
+        for (let row = -1.6; row <= 1.6; row += 1.6) ctx.fillRect(-6.5, row - 0.5, 13, 1);
+        ctx.restore();
+      }
+    }
+  }
+
+  /** Pórtico de salida sobre la línea de meta, con las cinco luces. */
+  drawGantry(ctx, state) {
+    const p = this.track.points[this.track.startIdx] || this.track.points[0];
+    if (!p) return;
+    const lit = state?.phase === 'countdown' ? state.lights || 0 : 0;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(Math.atan2(p.dirY, p.dirX));
+    const span = p.halfWidth + 3;
+    /* Pilares */
+    ctx.fillStyle = '#2b3446';
+    ctx.fillRect(-1.2, -span, 2.4, 1.6);
+    ctx.fillRect(-1.2, span - 1.6, 2.4, 1.6);
+    /* Travesaño */
+    ctx.fillStyle = '#39445c';
+    ctx.fillRect(-1.6, -span, 3.2, span * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, .25)';
+    ctx.fillRect(-1.6, -span, 1, span * 2);
+    /* Cinco luces del semáforo */
+    for (let i = 0; i < 5; i++) {
+      const y = -span * 0.72 + i * (span * 1.44 / 4);
+      ctx.beginPath();
+      ctx.arc(0, y, 1.05, 0, Math.PI * 2);
+      ctx.fillStyle = i < lit ? '#ef4444' : 'rgba(24, 30, 42, .9)';
+      ctx.fill();
+      if (i < lit) {
+        ctx.strokeStyle = 'rgba(252, 165, 165, .9)';
+        ctx.lineWidth = 0.28;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   /** Rellena la cinta de asfalto entre los dos bordes de la calzada. */
@@ -7660,66 +8021,132 @@ class TrackView {
   drawCars(ctx, state) {
     if (!state || !state.cars) return;
     const order = state.order || [];
-    const sorted = [...state.cars].sort((a, b) => order.indexOf(a.driverId) - order.indexOf(b.driverId));
-    // Los coches sinclassified se dibujan al final, apagados.
+    const rank = new Map(order.map((c, i) => [c, i]));
+    const sorted = state.cars.slice().sort((a, b) => {
+      /* state.order son objetos de coche, no ids: se ordena por posición real */
+      const pa = rank.has(a) ? rank.get(a) : 999;
+      const pb = rank.has(b) ? rank.get(b) : 999;
+      return pa - pb;
+    });
+    // Los coches sin clasificar se dibujan al final, apagados.
     for (const car of [...sorted.filter((c) => c.retired || c.eliminatedIn), ...sorted.filter((c) => !c.retired && !c.eliminatedIn)]) {
       if (!Number.isFinite(car.x) || !Number.isFinite(car.y)) continue;
       this.drawCar(ctx, car, state);
     }
   }
 
+  /**
+   * Monoplaza de F1 visto desde arriba: morro, pontones, alerones, casco con
+   * halo y el dorsal del piloto. Medidas reales en metros (4,6 x 2,0).
+   */
   drawCar(ctx, car, state) {
     const team = this.teamsById?.[car.teamId];
     const primary = teamColor(team);
     const secondary = teamSecondary(team);
     const ghost = car.retired || car.eliminatedIn;
-    const width = 1.9;
-    const length = 4.6;
+    const W = 2.0;
+    const L = 4.6;
+    const nose = L / 2;
 
     ctx.save();
     ctx.translate(car.x, car.y);
     ctx.rotate(car.angle);
     if (ghost) ctx.globalAlpha = 0.35;
 
-    // Sombra.
-    ctx.fillStyle = 'rgba(0, 0, 0, .45)';
-    this.carPath(ctx, -length / 2, width / 2 + 0.25, length, width);
+    // Sombra proyectada.
+    ctx.fillStyle = 'rgba(0, 0, 0, .5)';
+    this.bodyPath(ctx, -L / 2, -W / 2, L, W);
     ctx.fill();
 
-    // Neumáticos.
-    ctx.fillStyle = '#0e1015';
-    ctx.fillRect(-length / 2 + 0.4, -width / 2 - 0.55, 1.5, 0.6);
-    ctx.fillRect(-length / 2 + 0.4, width / 2 - 0.05, 1.5, 0.6);
-    ctx.fillRect(length / 2 - 1.9, -width / 2 - 0.55, 1.5, 0.6);
-    ctx.fillRect(length / 2 - 1.9, width / 2 - 0.05, 1.5, 0.6);
+    // Neumáticos traseros y delanteros, con banda de rodadura.
+    ctx.fillStyle = '#0b0d11';
+    for (const [x, w] of [[-L / 2 + 0.25, 1.55], [L / 2 - 1.8, 1.4]]) {
+      ctx.fillRect(x, -W / 2 - 0.5, w, 0.5);
+      ctx.fillRect(x, W / 2, w, 0.5);
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, .08)';
+    for (const [x, w] of [[-L / 2 + 0.35, 1.35], [L / 2 - 1.7, 1.2]]) {
+      ctx.fillRect(x, -W / 2 - 0.42, w, 0.16);
+      ctx.fillRect(x, W / 2 + 0.26, w, 0.16);
+    }
 
-    // Monocasco con librea.
-    this.carPath(ctx, -length / 2, -width / 2, length, width);
-    const grad = ctx.createLinearGradient(0, -width / 2, 0, width / 2);
-    grad.addColorStop(0, primary);
-    grad.addColorStop(0.5, secondary);
-    grad.addColorStop(1, primary);
+    // Monocasco con librea del equipo.
+    this.bodyPath(ctx, -L / 2, -W / 2, L, W);
+    const grad = ctx.createLinearGradient(0, -W / 2, 0, W / 2);
+    grad.addColorStop(0, secondary);
+    grad.addColorStop(0.45, primary);
+    grad.addColorStop(1, secondary);
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = alpha('#000000', 0.55);
-    ctx.lineWidth = 0.25;
+    ctx.strokeStyle = alpha('#000000', 0.6);
+    ctx.lineWidth = 0.18;
     ctx.stroke();
 
-    // Alerón y morro.
+    // Morro: punta estrecha delante de los pontones.
     ctx.fillStyle = primary;
-    ctx.fillRect(-length / 2 - 0.5, -width / 2, 0.5, width);
-    ctx.fillRect(length / 2 - 0.4, -width / 2 - 0.1, 0.4, width + 0.2);
-
-    // Copiloto.
-    ctx.fillStyle = CARBON;
     ctx.beginPath();
-    ctx.arc(-0.2, 0, 0.72, 0, Math.PI * 2);
+    ctx.moveTo(nose - 0.1, -0.5);
+    ctx.lineTo(nose + 0.95, -0.16);
+    ctx.lineTo(nose + 0.95, 0.16);
+    ctx.lineTo(nose - 0.1, 0.5);
+    ctx.closePath();
     ctx.fill();
+
+    // Franjas de la librea sobre el morro y el(engine cover).
+    ctx.fillStyle = secondary;
+    ctx.fillRect(nose - 0.3, -0.22, 1.1, 0.44);
+    ctx.fillStyle = alpha('#ffffff', 0.35);
+    ctx.fillRect(-L / 2 + 0.9, -0.1, 2.6, 0.2);
+
+    // Alerón trasero, en doszamonas con el plano principal.
+    ctx.fillStyle = secondary;
+    ctx.fillRect(-L / 2 - 0.62, -W / 2 + 0.05, 0.62, W - 0.1);
+    ctx.fillStyle = primary;
+    ctx.fillRect(-L / 2 - 1.05, -W / 2 - 0.12, 0.45, W + 0.24);
+    ctx.fillStyle = alpha('#000000', 0.35);
+    ctx.fillRect(-L / 2 - 1.05, -0.1, 0.45, 0.2);
+
+    // Alerón delantero.
+    ctx.fillStyle = secondary;
+    ctx.fillRect(nose + 0.55, -0.9, 0.5, 1.8);
+
+    // Airbox y cubierta del motor.
+    ctx.fillStyle = alpha('#000000', 0.35);
+    this.bodyPath(ctx, -L / 2 + 0.1, -0.36, L - 0.6, 0.72);
+    ctx.fill();
+
+    // Casco del piloto y halo.
+    ctx.fillStyle = readableOn(primary);
+    ctx.beginPath();
+    ctx.arc(0.1, 0, 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = CARBON;
+    ctx.lineWidth = 0.16;
+    ctx.beginPath();
+    ctx.arc(0.05, 0, 0.62, Math.PI * 0.85, Math.PI * 2.15);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-0.55, 0);
+    ctx.lineTo(0.68, 0);
+    ctx.stroke();
+
+    // Dorsal en el morro, en el color que contraste con la librea.
+    if (car.number != null) {
+      ctx.fillStyle = readableOn(primary);
+      ctx.font = 'bold 1.5px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.save();
+      ctx.translate(nose + 0.35, 0);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(String(car.number), 0, 0);
+      ctx.restore();
+    }
 
     // Destello del DRS.
     if (car.drsOpen && !ghost) {
       ctx.fillStyle = 'rgba(34, 197, 94, .9)';
-      ctx.fillRect(length / 2 - 0.2, -0.4, 0.4, 0.8);
+      ctx.fillRect(nose - 0.3, -0.3, 0.22, 0.6);
     }
 
     // Etiqueta del jugador.
@@ -7734,11 +8161,14 @@ class TrackView {
     ctx.restore();
   }
 
-  carPath(ctx, x, y, w, h) {
+  /** Silueta del monoplaza: morro estrecho y pontones anchos. */
+  bodyPath(ctx, x, y, w, h) {
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.lineTo(x + w, y + 0.35);
-    ctx.lineTo(x + w, y + h - 0.35);
+    ctx.lineTo(x + w * 0.62, y);
+    ctx.lineTo(x + w, y + h * 0.22);
+    ctx.lineTo(x + w, y + h * 0.78);
+    ctx.lineTo(x + w * 0.62, y + h);
     ctx.lineTo(x, y + h);
     ctx.closePath();
   }
@@ -8418,13 +8848,10 @@ const driverCreateScreen = {
 __registry["js/ui/screens/garage.js"] = function (__x, __req) {
 // Garage: estado del coche, atributos, plantilla y modelo para la próxima cita.
 
-const { el, button, bar } = __req("js/ui/dom.js");
-const { teamCard, carStats, driverCard, currentRound, deepClone } = __req("js/game/career.js");
+const { el, bar } = __req("js/ui/dom.js");
+const { teamCard, carStats, driverCard, currentRound } = __req("js/game/career.js");
+const { teamBadge } = __req("js/ui/screens/tables.js");
 const { ctx } = __req("js/ui/context.js");
-const { autosave } = __req("js/ui/save.js");
-
-const UPGRADE_COST = 1;
-const FIELD_BY_LABEL = { Potencia: 'power', Aerodinámica: 'aero', Agarre: 'grip', Frenos: 'brakes', Fiabilidad: 'reliability' };
 
 async function showGarage(shell) {
   const state = ctx.career;
@@ -8435,36 +8862,18 @@ async function showGarage(shell) {
   const round = currentRound(state);
   const teammates = (state.entryList || []).filter((e) => e.teamId === state.teamId && e.driverId !== state.driver.id);
   const budget = crew.team.car?.budget ?? 0;
-  const development = state.teamDevelopment ?? 0;
-
-  const spend = (label) => {
-    const field = FIELD_BY_LABEL[label];
-    if (!field) return;
-    if (development + UPGRADE_COST > budget) {
-      shell.toast('No queda presupuesto de desarrollo.', 'bad');
-      return;
-    }
-    /* El equipo viene del módulo de datos, así que se copia antes de tocarlo
-       para que el desarrollo no se filtre a otras partidas */
-    if (!state.teamUpgraded) {
-      state.team = deepClone(state.team);
-      state.teamUpgraded = true;
-    }
-    state.team.car[field] = Math.min(99, (state.team.car[field] || 0) + 1);
-    state.teamDevelopment = development + UPGRADE_COST;
-    autosave();
-    shell.toast(`${label} mejorado.`, 'good');
-    showGarage(shell);
-  };
 
   shell.mount(el('div.screen', null, [
     el('div.screen-head', null, [
       el('div', null, [
-        el('h2', { text: `Garaje · ${crew.team.name}` }),
+        el('div.row.row-tight', null, [
+          teamBadge(state.teamId, state.series, { size: 26 }),
+          el('h2', { text: `Garaje · ${crew.team.name}` }),
+        ]),
         el('div.sub', { text: `${crew.team.fullName || ''} ${crew.team.flag || ''}` }),
       ]),
       el('div.row.row-tight', null, [
-        el('span.chip', { text: `Presupuesto ${budget - development}/${budget}` }),
+        el('span.chip', { text: `Presupuesto ${budget}` }),
         el('span.chip', { text: `Nivel ${crew.level || 1}` }),
       ]),
     ]),
@@ -8478,14 +8887,8 @@ async function showGarage(shell) {
               el('b.mono', { text: String(s.value) }),
             ]),
             bar(s.value, 100, s.value >= 90 ? 'good' : s.value >= 75 ? '' : 'warn'),
-            FIELD_BY_LABEL[s.key] ? button(`Mejorar (${UPGRADE_COST})`, {
-              kind: 'ghost',
-              small: true,
-              disabled: development + UPGRADE_COST > budget,
-              onClick: () => spend(s.key),
-            }) : null,
           ]))),
-          el('div.hint', { style: { marginTop: '8px' }, text: 'Cada punto de desarrollo consume presupuesto de la escudería y sube el rendimiento del coche durante el resto de la temporada.' }),
+          el('div.hint', { style: { marginTop: '8px' }, text: 'El monoplaza se entrega tal cual: no hay mejoras ni desarrollo durante la temporada. Todo depende del equipo que haya firmado contigo y de tus propias manos al volante.' }),
         ]),
         el('div.card', null, [
           el('h3', { text: 'Tu piloto' }),
@@ -8553,7 +8956,7 @@ __registry["js/ui/screens/howto.js"] = function (__x, __req) {
 // Guía rápida: controles, sistemas de carrera y camino a F1.
 
 const { el, button } = __req("js/ui/dom.js");
-const { LENGTH_LABELS } = __req("js/game/race.js");
+const { RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS, MISSED_PIT_PENALTY_S } = __req("js/game/race.js");
 
 async function showHowTo(shell, { onBack } = {}) {
   const section = (title, rows) => el('div.card', null, [
@@ -8584,8 +8987,10 @@ async function showHowTo(shell, { onBack } = {}) {
           ['Simulación ×1/×2/×3', '4 / 5 / 6'],
         ]),
         section('Carrera', [
-          ['Longitud de carrera', Object.values(LENGTH_LABELS).join(' / ')],
-          ['Neumáticos', 'C5 blandos, C3 medios, C2 duros; verde de lluvia, azul de agua'],
+          ['Distancia', `${RACE_LAPS} vueltas en F1 y F2; el sprint son ${SPRINT_LAPS}`],
+          ['Parada obligatoria', `${MAX_PIT_STOPS === 1 ? 'Una sola parada' : `${MAX_PIT_STOPS} paradas`}; sin parar, +${MISSED_PIT_PENALTY_S} s de penalización`],
+          ['Neumáticos', 'C5 blandos (7 vueltas, los más rápidos), C3 medios (12), C2 duros (16, algo más lentos)'],
+          ['Pista', 'Siempre en seco: no hay gomas de lluvia'],
           ['ERS', 'Se despliega en las rectas y se recupera frenando'],
           ['Daño', 'Sin pasar por boxes se acumula y acaba en el abandono'],
           ['Bandera amarilla', 'No se puede ganar posición; el coche de seguridad te devuelve a pista'],
@@ -8767,7 +9172,7 @@ __registry["js/ui/screens/paddock.js"] = function (__x, __req) {
 // y da acceso al fin de semana, clasificación, calendario, buzón y garage.
 
 const { el, button, bar, formatDate } = __req("js/ui/dom.js");
-const { standingsTable } = __req("js/ui/screens/tables.js");
+const { standingsTable, teamBadge } = __req("js/ui/screens/tables.js");
 const { buildStandings, playerRow, teamRow } = __req("js/game/standings.js");
 const { currentRound, daysToRound, isSeasonOver, repeatSeason, promoteToF1, driverCard, teamCard, carStats } = __req("js/game/career.js");
 const { ctx, canRun } = __req("js/ui/context.js");
@@ -8995,7 +9400,7 @@ async function pickF1Team(shell) {
         'aria-pressed': String(picked === team.id),
         on: { click: () => { picked = team.id; paint(); } },
       }, [
-        el('span.swatch-team', { style: { background: team.livery.primary } }),
+        teamBadge(team.id, 'f1', { size: 26 }),
         el('span.grow', null, [
           el('span.t', { text: team.name }),
           el('span.d', { text: `${team.titles} títulos · potencia ${team.car.power} · ${team.hq}` }),
@@ -9174,7 +9579,8 @@ async function showSaves(shell, { onPick, onBack } = {}) {
             onClick: async () => {
               const data = readSlot(slot.index);
               if (!data) return;
-              ctx.career = data.state || data;
+              const { hydrateState } = await __lazy("js/game/career.js");
+              ctx.career = hydrateState(data.state || data);
               ctx.slot = slot.index;
               shell.toast('Partida cargada.', 'good');
               onPick?.(slot.index);
@@ -9243,7 +9649,8 @@ __registry["js/ui/screens/session.js"] = function (__x, __req) {
 // detiene el resto de la interfaz mientras corre.
 
 const { el, button, formatTime } = __req("js/ui/dom.js");
-const { createSession, updateSession, LENGTH_LABELS } = __req("js/game/race.js");
+const { createSession, updateSession, RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS } = __req("js/game/race.js");
+const { TYRES, TYRE_ORDER, tyrePace } = __req("js/game/car.js");
 const { getCircuit } = __req("js/data/circuits.js");
 const { recordSession, currentRound, roundFinished, advanceToNextRound, gridEntryList } = __req("js/game/career.js");
 const { TrackView } = __req("js/render/track-view.js");
@@ -9254,6 +9661,49 @@ const { ctx, buildTeamIndex } = __req("js/ui/context.js");
 const { autosave } = __req("js/ui/save.js");
 
 const SIM_STEP = 1 / 60;
+
+/** Vueltas según el tipo de sesión. */
+function lapsFor(kind) {
+  if (kind === 'sprint') return SPRINT_LAPS;
+  if (kind === 'feature') return RACE_LAPS;
+  return 0;
+}
+
+/**
+ * Pantalla previa a la parrilla: el jugador elige con qué neumático sale.
+ * Los blandos son los más rápidos pero duran 7 vueltas, así que hay que
+ * llegar a la parada con ellos.
+ */
+async function pickStartTyre(shell, { laps, lastTyre }) {
+  const detail = (id) => {
+    const t = TYRES[id];
+    const pace = Math.round((tyrePace(id, 0) - 1) * 100);
+    return `${t.name} · vida ${t.life} vueltas · ${pace >= 0 ? '+' : ''}${pace}% de ritmo`;
+  };
+  const pick = await shell.modal({
+    title: 'Neumático de salida',
+    body: el('div.stack', null, [
+      el('p.muted', {
+        text: `${laps} vueltas y ${MAX_PIT_STOPS} parada${MAX_PIT_STOPS > 1 ? 's' : ''} obligatoria${MAX_PIT_STOPS > 1 ? 's' : ''}. Elige con qué compuesto sales: el desgaste llega al final de su vida.`,
+      }),
+      el('ul.tyre-list', null, TYRE_ORDER.map((id) =>
+        el('li.tyre-item', null, [
+          el('span.tyre-dot', { style: `background:${TYRES[id].color}` }),
+          el('span.tyre-name', { text: TYRES[id].name }),
+          el('span.tyre-life', { text: detail(id) }),
+        ])
+      )),
+      el('p.muted.hint', { text: `Salir con el ${TYRES[lastTyre]?.name || 'medio'} te permite alargar la primera entrada.`, }),
+    ]),
+    actions: TYRE_ORDER.map((id) => ({
+      label: TYRES[id].name,
+      kind: id === (lastTyre || 'medium') ? 'primary' : 'ghost',
+      value: id,
+    })),
+    dismissable: true,
+  });
+  return TYRES[pick] ? pick : lastTyre || 'medium';
+}
 
 let active = null;
 
@@ -9275,6 +9725,13 @@ async function showSession(shell, { session: sessionDef, round } = {}) {
   const circuit = getCircuit(raceRound.circuitId);
   const teamsById = buildTeamIndex(state.series);
 
+  /* Elección de neumático antes de salir a pista */
+  const laps = lapsFor(sessionDef.type);
+  const startTyre = laps > 0
+    ? await pickStartTyre(shell, { laps, lastTyre: ctx.settings.startTyre || 'medium' })
+    : 'soft';
+  if (laps > 0) ctx.settings.startTyre = startTyre;
+
   const session = createSession({
     circuit,
     entryList: gridEntryList(state),
@@ -9282,6 +9739,7 @@ async function showSession(shell, { session: sessionDef, round } = {}) {
     round: raceRound,
     settings: ctx.settings,
     seed: `${state.seed}|${state.series}|${state.round}|${sessionDef.id}`,
+    startTyre,
   });
   ctx.session = session;
 
@@ -9301,8 +9759,14 @@ async function showSession(shell, { session: sessionDef, round } = {}) {
   shell.setNav([]);
   shell.setChrome({
     title: `${sessionDef.name} · ${circuit.name}`,
-    subtitle: `${raceRound.flag} ${raceRound.gp} · ${circuit.length} km · ${LENGTH_LABELS[ctx.settings.raceLength] || ' corta'}`,
-    chips: [el('span.chip.chip-red', { text: state.series === 'f1' ? 'F1' : 'F2' }), el('span.chip', { text: circuit.weather })],
+    subtitle: laps > 0
+      ? `${raceRound.flag} ${raceRound.gp} · ${laps} vueltas · ${MAX_PIT_STOPS} parada obligatoria · ${TYRES[startTyre].name}`
+      : `${raceRound.flag} ${raceRound.gp} · ${circuit.length} km`,
+    chips: [
+      el('span.chip.chip-red', { text: state.series === 'f1' ? 'F1' : 'F2' }),
+      el('span.chip', { text: 'Seco' }),
+      laps > 0 ? el('span.chip', { text: `${TYRES[startTyre].name} · ${TYRES[startTyre].life} vueltas` }) : null,
+    ].filter(Boolean),
   });
 
   const view = new TrackView(canvas);
@@ -9495,6 +9959,7 @@ function updateAudio(session, controls = {}) {
 
 let lastLap = 1;
 let lastPhase = '';
+let lastLights = 0;
 let lastGear = 1;
 let lastDrs = false;
 let lastRetired = false;
@@ -9503,6 +9968,7 @@ let lastRetired = false;
 function resetAudioTriggers() {
   lastLap = 1;
   lastPhase = '';
+  lastLights = 0;
   lastGear = 1;
   lastDrs = false;
   lastRetired = false;
@@ -9512,8 +9978,12 @@ function checkEvents(session) {
   const p = session.player;
   if (session.phase !== lastPhase) {
     if (session.phase === 'green') audio.sfx('beepGo');
-    if (lastPhase === 'countdown') audio.sfx('lights');
     lastPhase = session.phase;
+  }
+  /* Una baliza por luz roja encendida, y el pitido largo al apagarse todas */
+  if (session.lights !== lastLights) {
+    if (session.lights > lastLights) audio.sfx('beep');
+    lastLights = session.lights;
   }
   if (p.lap !== lastLap) {
     lastLap = p.lap;
@@ -9533,10 +10003,10 @@ function checkEvents(session) {
   __x.showSession = showSession;
 };
 __registry["js/ui/screens/settings.js"] = function (__x, __req) {
-// Ajustes: sonido, ayudas de conducción, longitud de carrera y datos.
+// Ajustes: sonido, ayudas de conducción y datos.
 
 const { el, button, segmented, toggle } = __req("js/ui/dom.js");
-const { LENGTH_LABELS } = __req("js/game/race.js");
+const { RACE_LAPS, SPRINT_LAPS, MAX_PIT_STOPS } = __req("js/game/race.js");
 const { storageInfo, downloadText, DEFAULT_SETTINGS } = __req("js/core/storage.js");
 const { audio } = __req("js/core/audio.js");
 const { ctx, setSettings } = __req("js/ui/context.js");
@@ -9602,14 +10072,7 @@ async function showSettings(shell, { onBack } = {}) {
           ]),
           el('div.card', null, [
             el('h3', { text: 'Sesión' }),
-            el('div.field', null, [
-              el('label', { text: 'Duración de carrera' }),
-              segmented(Object.entries(LENGTH_LABELS).map(([value, label]) => ({ value, label })), s.raceLength, (value) => {
-                setSettings({ raceLength: value });
-                paint();
-              }),
-              el('div.err', { text: 'Aplica a carreras y sprints; los sprints son siempre un 30 % más cortos.' }),
-            ]),
+            el('p.muted', { text: `Las carreras son siempre de ${RACE_LAPS} vueltas (el sprint, ${SPRINT_LAPS}) con ${MAX_PIT_STOPS === 1 ? 'una' : MAX_PIT_STOPS} parada obligatoria y una sola salida en seco.` }),
             el('div.field', null, [
               el('label', { text: 'Unidades' }),
               segmented([{ value: 'metric', label: 'Métrico (km/h)' }, { value: 'imperial', label: 'Imperial (mph)' }], s.units, (value) => {
@@ -9786,7 +10249,8 @@ __registry["js/ui/screens/tables.js"] = function (__x, __req) {
 // Tablas compartidas por clasificación, resultados y calendario.
 
 const { el, formatTime, formatGap } = __req("js/ui/dom.js");
-const { getTeam } = __req("js/data/teams.js");
+const { getTeam, teamLogo } = __req("js/data/teams.js");
+const { TYRES } = __req("js/game/car.js");
 
 const NEUTRAL = '#3a4152';
 
@@ -9795,11 +10259,49 @@ function teamBar(teamId, series) {
   return el('span.team-bar', { style: { background: team?.livery?.primary || NEUTRAL } });
 }
 
+/**
+ * Escudo de la escudería en PNG. Si el fichero no existe (o el equipo no tiene
+ * escudo) cae a la barrita de color, para que la tabla nunca se rompa.
+ */
+function teamBadge(teamId, series = 'f1', { size = 20 } = {}) {
+  const team = teamId ? getTeam(teamId, series) : null;
+  const bar = teamBar(teamId, series);
+  const src = team ? teamLogo(team, series) : '';
+  const wrap = el('span.team-crest', { title: team ? team.name : '' });
+  if (!src) {
+    wrap.append(bar);
+    return wrap;
+  }
+  const img = el('img.team-logo', {
+    src,
+    alt: team.name,
+    width: size,
+    height: size,
+    loading: 'lazy',
+    decoding: 'async',
+    on: { error: () => { img.remove(); wrap.append(bar); } },
+  });
+  wrap.append(img);
+  return wrap;
+}
+
 function statusChip(entry) {
   if (entry.dsq) return el('span.chip.chip-red', { text: 'Descalificado' });
   if (entry.retired) return el('span.chip.chip-amber', { text: entry.retireReason || 'Abandono' });
   if (entry.eliminated) return el('span.chip', { text: `Eliminado en Q${(entry.segment || 0) + 1}` });
   return el('span.chip.chip-green', { text: 'Clasificado' });
+}
+
+/** Neumático final y cumplimiento de la parada obligatoria. */
+function tyreCell(entry) {
+  const t = TYRES[entry.tyre];
+  const row = el('div.row.row-tight');
+  row.append(el('span.tyre-dot', { style: `background:${t?.color || '#888'}` }));
+  row.append(el('span', { text: t ? `${t.name}` : '—' }));
+  if (entry.penaltyMs) row.append(el('span.chip.chip-red', { text: `+${entry.penaltyMs / 1000}s` }));
+  else if (entry.pitStops) row.append(el('span.chip.chip-green', { text: 'Parada OK' }));
+  else row.append(el('span.chip.chip-amber', { text: 'Sin parar' }));
+  return row;
 }
 
 /** Tabla de clasificación de campeonato. */
@@ -9822,7 +10324,7 @@ function standingsTable(standings, { playerId = 'player', limit = 0, series = 'f
     body.append(el('tr', { class: d.driverId === playerId ? 'me' : '' }, [
       el('td.pos-cell', { text: String(i + 1) }),
       el('td', null, el('div.driver-cell', null, [
-        teamBar(d.teamId, series),
+        teamBadge(d.teamId, series),
         el('span.flag', { text: d.flag || '🏁' }),
         el('span.grow', { text: d.name }),
         el('span.dim.mono', { style: { fontSize: '11px' }, text: d.short || '' }),
@@ -9859,7 +10361,7 @@ function constructorsTable(standings, { teamId = null, limit = 0, series = 'f1' 
     body.append(el('tr', { class: t.teamId === teamId ? 'me' : '' }, [
       el('td.pos-cell', { text: String(i + 1) }),
       el('td', null, el('div.driver-cell', null, [
-        el('span.team-bar', { style: { background: team.livery?.primary || NEUTRAL } }),
+        teamBadge(t.teamId, series),
         el('span.flag', { text: team.flag || '' }),
         el('span.grow', { text: team.name || t.teamId }),
       ])),
@@ -9884,8 +10386,9 @@ function resultTable(result, { playerId = 'player', isQuali = false, series = 'f
     el('th.num', { text: isQuali ? 'Mejor vuelta' : 'Diferencia' }),
     el('th.num', { text: isQuali ? 'Q' : 'Par' }),
     el('th.num', { text: 'Vueltas' }),
+    isQuali ? null : el('th', { text: 'Neumático' }),
     el('th', { text: 'Estado' }),
-  ])));
+  ].filter(Boolean))));
   const body = el('tbody');
   for (const d of entries) {
     const time = isQuali
@@ -9894,7 +10397,7 @@ function resultTable(result, { playerId = 'player', isQuali = false, series = 'f
     body.append(el('tr', { class: d.driverId === playerId ? 'me' : '' }, [
       el('td.pos-cell', { text: d.position ? String(d.position) : '—' }),
       el('td', null, el('div.driver-cell', null, [
-        teamBar(d.teamId, series),
+        teamBadge(d.teamId, series),
         el('span.flag', { text: d.flag || '🏁' }),
         el('span.grow', { text: d.name }),
         d.fastestLap ? el('span.chip', { class: 'chip-purple', text: 'VR' }) : null,
@@ -9902,8 +10405,9 @@ function resultTable(result, { playerId = 'player', isQuali = false, series = 'f
       el('td.num', { text: time }),
       el('td.num', { text: isQuali ? `Q${(d.segment ?? 3) + 1}` : (d.grid ? String(d.grid) : '—') }),
       el('td.num', { text: String(d.laps ?? 0) }),
+      isQuali ? null : el('td', null, tyreCell(d)),
       el('td', null, statusChip(d)),
-    ]));
+    ].filter(Boolean)));
   }
   table.append(body);
   if (!entries.length) {
@@ -9936,9 +10440,11 @@ function playerSummary(entry, { playerId = 'player' } = {}) {
     el('span.chip', { text: `Mejor ${formatTime(entry.bestLapMs)}` }),
     el('span.chip', { text: `${entry.laps ?? 0} vueltas` }),
     entry.pitStops ? el('span.chip', { text: `${entry.pitStops} parada(s)` }) : null,
+    entry.penaltyMs ? el('span.chip.chip-red', { text: `+${entry.penaltyMs / 1000}s de penalización` }) : null,
   ]);
 }
 
+  __x.teamBadge = teamBadge;
   __x.standingsTable = standingsTable;
   __x.constructorsTable = constructorsTable;
   __x.resultTable = resultTable;
@@ -10204,7 +10710,8 @@ class Shell {
       this.modalRoot.hidden = false;
       this.modalRoot.onclick = (e) => { if (dismissable && e.target === this.modalRoot) close(null); };
       const first = panel.querySelector('button');
-      first?.focus();
+      /* En entornos sin soporte de foco (pruebas, DOM simulado) no debe fallar */
+      if (first && typeof first.focus === 'function') first.focus();
     });
   }
 

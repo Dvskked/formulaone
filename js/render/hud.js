@@ -4,6 +4,8 @@
 import { el, formatTime, formatGap } from '../ui/dom.js';
 import { Minimap } from './minimap.js';
 import { TYRE_STYLE } from './palette.js';
+import { TYRES } from '../game/car.js';
+import { clamp } from '../core/util.js';
 
 const SECTOR_LABELS = ['S1', 'S2', 'S3'];
 
@@ -49,14 +51,18 @@ export class Hud {
 
     this.tyreRow = el('div.hud-box', null, [
       el('div.hud-tyre', null, Array.from({ length: 4 }, () => el('i'))),
+      el('div.hud-tyre-label', { text: 'C3' }),
       el('div.hud-ers', null, el('i')),
       el('div.hud-drs', { text: 'DRS' }),
     ]);
     this.tyreCells = [...this.tyreRow.querySelectorAll('.hud-tyre i')];
+    this.tyreLabel = this.tyreRow.querySelector('.hud-tyre-label');
     this.ersBar = this.tyreRow.querySelector('.hud-ers i');
     this.drsLabel = this.tyreRow.querySelector('.hud-drs');
 
     this.messages = el('div.hud-box.hud-msg', { text: '' });
+    this.pit = el('div.hud-pit', { text: '' });
+    this.pit.style.display = 'none';
     this.lights = el('div.hud-lights', null, Array.from({ length: 5 }, () => el('i')));
     this.banner = el('div.hud-banner', { text: '' });
     this.banner.style.display = 'none';
@@ -66,7 +72,7 @@ export class Hud {
     this.mapCanvas.style.height = '172px';
 
     this.root.append(
-      el('div.hud-tl', null, [this.posBox, this.timing]),
+      el('div.hud-tl', null, [this.posBox, this.timing, this.pit]),
       el('div.hud-tr', null, [this.messages]),
       el('div.hud-bl', null, [this.speedBox, this.gearBox, this.tyreRow]),
       el('div.hud-br', null, [this.standings, this.mapCanvas]),
@@ -127,6 +133,7 @@ export class Hud {
     this.updateStandings(state);
     this.updateBanner(state);
     this.updateLights(state);
+    this.updatePit(state);
     this.updateMessages(state);
 
     if (this.minimapVisible) this.minimap.draw(state);
@@ -154,29 +161,28 @@ export class Hud {
 
   updateTyres(p) {
     const style = TYRE_STYLE[p.tyre] || TYRE_STYLE.medium;
-    const wear = Math.min(2, Math.floor((p.tyreWear || 0) / 34));
+    const t = TYRES[p.tyre] || TYRES.medium;
+    const life = Math.max(1, t.life);
+    const used = clamp((p.tyreWear || 0) * life, 0, life);
+    const wear = used >= life - 1 ? 2 : used >= life * 0.55 ? 1 : 0;
     for (const cell of this.tyreCells) {
       cell.className = wear > 0 ? `wear-${wear}` : '';
       cell.style.background = wear > 0 ? '' : style.color;
     }
+    this.tyreLabel.textContent = `${style.label} · ${Math.max(0, life - used).toFixed(1)}v`;
   }
 
   updateStandings(state) {
     const order = state.order || [];
-    const cars = state.cars || [];
     const me = state.player;
-    const live = cars
-      .filter((c) => !c.retired)
-      .slice()
-      .sort((a, b) => order.indexOf(a.driverId) - order.indexOf(b.driverId));
+    const live = order.filter((c) => !c.retired);
     const shown = live.slice(0, 5);
-    const meIdx = order.indexOf(me?.driverId);
-    if (meIdx >= 5 && me && !me.retired) shown.push(me);
+    if (me && !me.retired && live.indexOf(me) >= 5) shown.push(me);
     this.standings.textContent = '';
     for (const car of shown) {
       if (!car || car.retired) continue;
-      const pos = order.indexOf(car.driverId) + 1;
-      const gap = pos === 1 ? null : (car.gaps?.[me?.driverId] ?? null);
+      const pos = car.position || live.indexOf(car) + 1;
+      const gap = pos === 1 ? null : car.gaps?.ahead ?? null;
       this.standings.append(el('div.r', { class: car.isPlayer ? 'me' : '' }, [
         el('span.p', { text: String(pos) }),
         el('span', { text: car.short || String(car.name || '').split(' ').pop() }),
@@ -209,14 +215,35 @@ export class Hud {
     this.banner.className = `hud-banner ${kind}`;
   }
 
+  /** Aviso de la parada obligatoria: queda o hecha, con la tecla P. */
+  updatePit(state) {
+    const p = state.player;
+    if (!this.pit) return;
+    const isRace = state.kind === 'feature' || state.kind === 'sprint';
+    if (!isRace || !p || p.retired || p.finished) {
+      this.pit.style.display = 'none';
+      return;
+    }
+    const done = p.pitStops >= (state.maxStops || 1);
+    this.pit.style.display = '';
+    this.pit.className = `hud-pit${done ? ' ok' : p.pitAdvice === 'late' || p.pitAdvice === 'now' ? ' warn' : ''}`;
+    this.pit.textContent = done
+      ? `Parada hecha (v${p.pitLap})`
+      : `Parada obligatoria · P · Quedan ${Math.max(0, state.laps - p.lap)} vueltas`;
+  }
+
   updateLights(state) {
-    if (state.phase !== 'countdown') {
+    const counting = state.phase === 'countdown';
+    const justGreen = state.phase === 'green' && state.greenTimer > 0;
+    if (!counting && !justGreen) {
       this.lights.style.display = 'none';
       return;
     }
     this.lights.style.display = '';
-    const lit = state.lights || 0;
+    const lit = counting ? state.lights || 0 : 0;
+    this.lights.classList.toggle('out', !counting);
     [...this.lights.children].forEach((cell, i) => cell.classList.toggle('on', i < lit));
+    this.lights.dataset.text = counting ? 'SALIDA' : '¡YA!';
   }
 
   updateMessages(state) {

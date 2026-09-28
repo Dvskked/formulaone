@@ -8,9 +8,9 @@ import {
 } from './palette.js';
 
 const CAMERAS = {
-  1: { zoom: 2.4, name: 'Cockpit' },
-  2: { zoom: 1.5, name: 'Cámara alta' },
-  3: { zoom: 0.9, name: 'Cenital' },
+  1: { zoom: 3.6, name: 'Cockpit' },
+  2: { zoom: 2.4, name: 'Cámara alta' },
+  3: { zoom: 1.15, name: 'Cenital' },
   4: { zoom: 0, name: 'Completa' },
 };
 
@@ -117,7 +117,9 @@ export class TrackView {
     const p = state?.player;
     if (this.camera === 4 || !p) return { zoom: full, x: this.track.center.x, y: this.track.center.y, rotate: false };
     const cfg = CAMERAS[this.camera];
-    const ahead = 26 + p.speed * 0.55;
+    /* Se mira más lejos cuanto más rápido va el coche, y en el cockpit la
+       cámara va pegada al morro para que la pista se vea ancha */
+    const ahead = (this.camera === 1 ? 6 : 18) + p.speed * 0.5;
     const x = p.x + Math.cos(p.angle) * ahead;
     const y = p.y + Math.sin(p.angle) * ahead;
     const zoom = cfg.zoom > 1 ? Math.max(full, 1.15 * cfg.zoom) : Math.max(full, cfg.zoom);
@@ -196,11 +198,110 @@ export class TrackView {
     // Pianos.
     this.drawKerbs(ctx, visible);
 
+    // Escapatorias de fuera de pista: grava, asfalto o hierba.
+    this.drawRunoff(ctx, visible);
+
+    // Tribunas y estructuras al borde del circuito.
+    this.drawStands(ctx, visible);
+
+    // Pórtico de salida con el semáforo.
+    this.drawGantry(ctx, state);
+
     // Carril de boxes.
     this.drawPitLane(ctx);
 
     // Cebra de boxes.
     if (state && state.pitWindowOpen) this.drawPitBox(ctx, state);
+  }
+
+  /** Franja de escapatoria a ambos lados del asfalto. */
+  drawRunoff(ctx, visible) {
+    const pts = this.track.points;
+    const bands = [
+      { from: 1.0, to: 6.5, colour: 'rgba(120, 108, 88, .85)' },
+      { from: 6.5, to: 13, colour: 'rgba(30, 48, 32, .9)' },
+    ];
+    for (const band of bands) {
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        let started = false;
+        for (const i of visible) {
+          const p = pts[i];
+          if (!p) continue;
+          const gravel = p.runoff === 'gravel';
+          const w = p.halfWidth + (band.from === 1.0 && gravel ? band.to : band.from);
+          const x = p.x + p.nx * w * side;
+          const y = p.y + p.ny * w * side;
+          if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+        for (let k = visible.length - 1; k >= 0; k--) {
+          const p = pts[visible[k]];
+          if (!p) continue;
+          const gravel = p.runoff === 'gravel';
+          const w = p.halfWidth + (band.to === 6.5 && gravel ? band.to : band.to);
+          ctx.lineTo(p.x + p.nx * w * side, p.y + p.ny * w * side);
+        }
+        if (!started) continue;
+        ctx.closePath();
+        ctx.fillStyle = band.colour;
+        ctx.fill();
+      }
+    }
+  }
+
+  /** Tribunas y gradas a lo largo del trazado, para que la pista no quede vacía. */
+  drawStands(ctx, visible) {
+    const pts = this.track.points;
+    for (const side of [-1, 1]) {
+      for (let k = 0; k < visible.length; k += 26) {
+        const p = pts[visible[k]];
+        if (!p) continue;
+        const off = p.halfWidth + 16;
+        ctx.save();
+        ctx.translate(p.x + p.nx * off * side, p.y + p.ny * off * side);
+        ctx.rotate(Math.atan2(p.dirY, p.dirX));
+        /* Grada oscura con las filas de asientos */
+        ctx.fillStyle = 'rgba(18, 24, 34, .92)';
+        ctx.fillRect(-7, -2.5, 14, 5);
+        ctx.fillStyle = 'rgba(40, 52, 70, .9)';
+        for (let row = -1.6; row <= 1.6; row += 1.6) ctx.fillRect(-6.5, row - 0.5, 13, 1);
+        ctx.restore();
+      }
+    }
+  }
+
+  /** Pórtico de salida sobre la línea de meta, con las cinco luces. */
+  drawGantry(ctx, state) {
+    const p = this.track.points[this.track.startIdx] || this.track.points[0];
+    if (!p) return;
+    const lit = state?.phase === 'countdown' ? state.lights || 0 : 0;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(Math.atan2(p.dirY, p.dirX));
+    const span = p.halfWidth + 3;
+    /* Pilares */
+    ctx.fillStyle = '#2b3446';
+    ctx.fillRect(-1.2, -span, 2.4, 1.6);
+    ctx.fillRect(-1.2, span - 1.6, 2.4, 1.6);
+    /* Travesaño */
+    ctx.fillStyle = '#39445c';
+    ctx.fillRect(-1.6, -span, 3.2, span * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, .25)';
+    ctx.fillRect(-1.6, -span, 1, span * 2);
+    /* Cinco luces del semáforo */
+    for (let i = 0; i < 5; i++) {
+      const y = -span * 0.72 + i * (span * 1.44 / 4);
+      ctx.beginPath();
+      ctx.arc(0, y, 1.05, 0, Math.PI * 2);
+      ctx.fillStyle = i < lit ? '#ef4444' : 'rgba(24, 30, 42, .9)';
+      ctx.fill();
+      if (i < lit) {
+        ctx.strokeStyle = 'rgba(252, 165, 165, .9)';
+        ctx.lineWidth = 0.28;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   /** Rellena la cinta de asfalto entre los dos bordes de la calzada. */
@@ -356,66 +457,132 @@ export class TrackView {
   drawCars(ctx, state) {
     if (!state || !state.cars) return;
     const order = state.order || [];
-    const sorted = [...state.cars].sort((a, b) => order.indexOf(a.driverId) - order.indexOf(b.driverId));
-    // Los coches sinclassified se dibujan al final, apagados.
+    const rank = new Map(order.map((c, i) => [c, i]));
+    const sorted = state.cars.slice().sort((a, b) => {
+      /* state.order son objetos de coche, no ids: se ordena por posición real */
+      const pa = rank.has(a) ? rank.get(a) : 999;
+      const pb = rank.has(b) ? rank.get(b) : 999;
+      return pa - pb;
+    });
+    // Los coches sin clasificar se dibujan al final, apagados.
     for (const car of [...sorted.filter((c) => c.retired || c.eliminatedIn), ...sorted.filter((c) => !c.retired && !c.eliminatedIn)]) {
       if (!Number.isFinite(car.x) || !Number.isFinite(car.y)) continue;
       this.drawCar(ctx, car, state);
     }
   }
 
+  /**
+   * Monoplaza de F1 visto desde arriba: morro, pontones, alerones, casco con
+   * halo y el dorsal del piloto. Medidas reales en metros (4,6 x 2,0).
+   */
   drawCar(ctx, car, state) {
     const team = this.teamsById?.[car.teamId];
     const primary = teamColor(team);
     const secondary = teamSecondary(team);
     const ghost = car.retired || car.eliminatedIn;
-    const width = 1.9;
-    const length = 4.6;
+    const W = 2.0;
+    const L = 4.6;
+    const nose = L / 2;
 
     ctx.save();
     ctx.translate(car.x, car.y);
     ctx.rotate(car.angle);
     if (ghost) ctx.globalAlpha = 0.35;
 
-    // Sombra.
-    ctx.fillStyle = 'rgba(0, 0, 0, .45)';
-    this.carPath(ctx, -length / 2, width / 2 + 0.25, length, width);
+    // Sombra proyectada.
+    ctx.fillStyle = 'rgba(0, 0, 0, .5)';
+    this.bodyPath(ctx, -L / 2, -W / 2, L, W);
     ctx.fill();
 
-    // Neumáticos.
-    ctx.fillStyle = '#0e1015';
-    ctx.fillRect(-length / 2 + 0.4, -width / 2 - 0.55, 1.5, 0.6);
-    ctx.fillRect(-length / 2 + 0.4, width / 2 - 0.05, 1.5, 0.6);
-    ctx.fillRect(length / 2 - 1.9, -width / 2 - 0.55, 1.5, 0.6);
-    ctx.fillRect(length / 2 - 1.9, width / 2 - 0.05, 1.5, 0.6);
+    // Neumáticos traseros y delanteros, con banda de rodadura.
+    ctx.fillStyle = '#0b0d11';
+    for (const [x, w] of [[-L / 2 + 0.25, 1.55], [L / 2 - 1.8, 1.4]]) {
+      ctx.fillRect(x, -W / 2 - 0.5, w, 0.5);
+      ctx.fillRect(x, W / 2, w, 0.5);
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, .08)';
+    for (const [x, w] of [[-L / 2 + 0.35, 1.35], [L / 2 - 1.7, 1.2]]) {
+      ctx.fillRect(x, -W / 2 - 0.42, w, 0.16);
+      ctx.fillRect(x, W / 2 + 0.26, w, 0.16);
+    }
 
-    // Monocasco con librea.
-    this.carPath(ctx, -length / 2, -width / 2, length, width);
-    const grad = ctx.createLinearGradient(0, -width / 2, 0, width / 2);
-    grad.addColorStop(0, primary);
-    grad.addColorStop(0.5, secondary);
-    grad.addColorStop(1, primary);
+    // Monocasco con librea del equipo.
+    this.bodyPath(ctx, -L / 2, -W / 2, L, W);
+    const grad = ctx.createLinearGradient(0, -W / 2, 0, W / 2);
+    grad.addColorStop(0, secondary);
+    grad.addColorStop(0.45, primary);
+    grad.addColorStop(1, secondary);
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = alpha('#000000', 0.55);
-    ctx.lineWidth = 0.25;
+    ctx.strokeStyle = alpha('#000000', 0.6);
+    ctx.lineWidth = 0.18;
     ctx.stroke();
 
-    // Alerón y morro.
+    // Morro: punta estrecha delante de los pontones.
     ctx.fillStyle = primary;
-    ctx.fillRect(-length / 2 - 0.5, -width / 2, 0.5, width);
-    ctx.fillRect(length / 2 - 0.4, -width / 2 - 0.1, 0.4, width + 0.2);
-
-    // Copiloto.
-    ctx.fillStyle = CARBON;
     ctx.beginPath();
-    ctx.arc(-0.2, 0, 0.72, 0, Math.PI * 2);
+    ctx.moveTo(nose - 0.1, -0.5);
+    ctx.lineTo(nose + 0.95, -0.16);
+    ctx.lineTo(nose + 0.95, 0.16);
+    ctx.lineTo(nose - 0.1, 0.5);
+    ctx.closePath();
     ctx.fill();
+
+    // Franjas de la librea sobre el morro y el(engine cover).
+    ctx.fillStyle = secondary;
+    ctx.fillRect(nose - 0.3, -0.22, 1.1, 0.44);
+    ctx.fillStyle = alpha('#ffffff', 0.35);
+    ctx.fillRect(-L / 2 + 0.9, -0.1, 2.6, 0.2);
+
+    // Alerón trasero, en doszamonas con el plano principal.
+    ctx.fillStyle = secondary;
+    ctx.fillRect(-L / 2 - 0.62, -W / 2 + 0.05, 0.62, W - 0.1);
+    ctx.fillStyle = primary;
+    ctx.fillRect(-L / 2 - 1.05, -W / 2 - 0.12, 0.45, W + 0.24);
+    ctx.fillStyle = alpha('#000000', 0.35);
+    ctx.fillRect(-L / 2 - 1.05, -0.1, 0.45, 0.2);
+
+    // Alerón delantero.
+    ctx.fillStyle = secondary;
+    ctx.fillRect(nose + 0.55, -0.9, 0.5, 1.8);
+
+    // Airbox y cubierta del motor.
+    ctx.fillStyle = alpha('#000000', 0.35);
+    this.bodyPath(ctx, -L / 2 + 0.1, -0.36, L - 0.6, 0.72);
+    ctx.fill();
+
+    // Casco del piloto y halo.
+    ctx.fillStyle = readableOn(primary);
+    ctx.beginPath();
+    ctx.arc(0.1, 0, 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = CARBON;
+    ctx.lineWidth = 0.16;
+    ctx.beginPath();
+    ctx.arc(0.05, 0, 0.62, Math.PI * 0.85, Math.PI * 2.15);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-0.55, 0);
+    ctx.lineTo(0.68, 0);
+    ctx.stroke();
+
+    // Dorsal en el morro, en el color que contraste con la librea.
+    if (car.number != null) {
+      ctx.fillStyle = readableOn(primary);
+      ctx.font = 'bold 1.5px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.save();
+      ctx.translate(nose + 0.35, 0);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(String(car.number), 0, 0);
+      ctx.restore();
+    }
 
     // Destello del DRS.
     if (car.drsOpen && !ghost) {
       ctx.fillStyle = 'rgba(34, 197, 94, .9)';
-      ctx.fillRect(length / 2 - 0.2, -0.4, 0.4, 0.8);
+      ctx.fillRect(nose - 0.3, -0.3, 0.22, 0.6);
     }
 
     // Etiqueta del jugador.
@@ -430,11 +597,14 @@ export class TrackView {
     ctx.restore();
   }
 
-  carPath(ctx, x, y, w, h) {
+  /** Silueta del monoplaza: morro estrecho y pontones anchos. */
+  bodyPath(ctx, x, y, w, h) {
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.lineTo(x + w, y + 0.35);
-    ctx.lineTo(x + w, y + h - 0.35);
+    ctx.lineTo(x + w * 0.62, y);
+    ctx.lineTo(x + w, y + h * 0.22);
+    ctx.lineTo(x + w, y + h * 0.78);
+    ctx.lineTo(x + w * 0.62, y + h);
     ctx.lineTo(x, y + h);
     ctx.closePath();
   }

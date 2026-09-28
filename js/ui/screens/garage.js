@@ -1,12 +1,9 @@
 // Garage: estado del coche, atributos, plantilla y modelo para la próxima cita.
 
-import { el, button, bar } from '../dom.js';
-import { teamCard, carStats, driverCard, currentRound, deepClone } from '../../game/career.js';
+import { el, bar } from '../dom.js';
+import { teamCard, carStats, driverCard, currentRound } from '../../game/career.js';
+import { teamBadge } from './tables.js';
 import { ctx } from '../context.js';
-import { autosave } from '../save.js';
-
-const UPGRADE_COST = 1;
-const FIELD_BY_LABEL = { Potencia: 'power', Aerodinámica: 'aero', Agarre: 'grip', Frenos: 'brakes', Fiabilidad: 'reliability' };
 
 export async function showGarage(shell) {
   const state = ctx.career;
@@ -17,36 +14,18 @@ export async function showGarage(shell) {
   const round = currentRound(state);
   const teammates = (state.entryList || []).filter((e) => e.teamId === state.teamId && e.driverId !== state.driver.id);
   const budget = crew.team.car?.budget ?? 0;
-  const development = state.teamDevelopment ?? 0;
-
-  const spend = (label) => {
-    const field = FIELD_BY_LABEL[label];
-    if (!field) return;
-    if (development + UPGRADE_COST > budget) {
-      shell.toast('No queda presupuesto de desarrollo.', 'bad');
-      return;
-    }
-    /* El equipo viene del módulo de datos, así que se copia antes de tocarlo
-       para que el desarrollo no se filtre a otras partidas */
-    if (!state.teamUpgraded) {
-      state.team = deepClone(state.team);
-      state.teamUpgraded = true;
-    }
-    state.team.car[field] = Math.min(99, (state.team.car[field] || 0) + 1);
-    state.teamDevelopment = development + UPGRADE_COST;
-    autosave();
-    shell.toast(`${label} mejorado.`, 'good');
-    showGarage(shell);
-  };
 
   shell.mount(el('div.screen', null, [
     el('div.screen-head', null, [
       el('div', null, [
-        el('h2', { text: `Garaje · ${crew.team.name}` }),
+        el('div.row.row-tight', null, [
+          teamBadge(state.teamId, state.series, { size: 26 }),
+          el('h2', { text: `Garaje · ${crew.team.name}` }),
+        ]),
         el('div.sub', { text: `${crew.team.fullName || ''} ${crew.team.flag || ''}` }),
       ]),
       el('div.row.row-tight', null, [
-        el('span.chip', { text: `Presupuesto ${budget - development}/${budget}` }),
+        el('span.chip', { text: `Presupuesto ${budget}` }),
         el('span.chip', { text: `Nivel ${crew.level || 1}` }),
       ]),
     ]),
@@ -60,14 +39,8 @@ export async function showGarage(shell) {
               el('b.mono', { text: String(s.value) }),
             ]),
             bar(s.value, 100, s.value >= 90 ? 'good' : s.value >= 75 ? '' : 'warn'),
-            FIELD_BY_LABEL[s.key] ? button(`Mejorar (${UPGRADE_COST})`, {
-              kind: 'ghost',
-              small: true,
-              disabled: development + UPGRADE_COST > budget,
-              onClick: () => spend(s.key),
-            }) : null,
           ]))),
-          el('div.hint', { style: { marginTop: '8px' }, text: 'Cada punto de desarrollo consume presupuesto de la escudería y sube el rendimiento del coche durante el resto de la temporada.' }),
+          el('div.hint', { style: { marginTop: '8px' }, text: 'El monoplaza se entrega tal cual: no hay mejoras ni desarrollo durante la temporada. Todo depende del equipo que haya firmado contigo y de tus propias manos al volante.' }),
         ]),
         el('div.card', null, [
           el('h3', { text: 'Tu piloto' }),

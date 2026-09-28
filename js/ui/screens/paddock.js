@@ -3,7 +3,7 @@
 // y da acceso al fin de semana, clasificación, calendario, buzón y garage.
 
 import { el, button, bar, formatDate } from '../dom.js';
-import { standingsTable } from './tables.js';
+import { standingsTable, teamBadge } from './tables.js';
 import { buildStandings, playerRow, teamRow } from '../../game/standings.js';
 import {
   currentRound, daysToRound, isSeasonOver, repeatSeason, promoteToF1,
@@ -234,7 +234,7 @@ async function pickF1Team(shell) {
         'aria-pressed': String(picked === team.id),
         on: { click: () => { picked = team.id; paint(); } },
       }, [
-        el('span.swatch-team', { style: { background: team.livery.primary } }),
+        teamBadge(team.id, 'f1', { size: 26 }),
         el('span.grow', null, [
           el('span.t', { text: team.name }),
           el('span.d', { text: `${team.titles} títulos · potencia ${team.car.power} · ${team.hq}` }),
