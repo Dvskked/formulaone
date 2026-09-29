@@ -3,14 +3,16 @@
 // transforma al lienzo con una cámara que sigue al jugador.
 
 import {
-  ASPHALT, ASPHALT_DARK, CARBON, GRASS, KERB_BLUE, KERB_RED, WHITE,
+  ASPHALT, ASPHALT_DARK, CARBON, GRASS, GRASS_ALT, KERB_BLUE, KERB_RED, WHITE,
   alpha, readableOn, teamColor, teamSecondary,
 } from './palette.js';
 
+/* Escala en píxeles por metro. Con la pista a 21 m de ancho, un zoom de 7 la deja
+   en ~150 px: se ve la pista de verdad en vez de una cinta lejana. */
 const CAMERAS = {
-  1: { zoom: 3.6, name: 'Cockpit' },
-  2: { zoom: 2.4, name: 'Cámara alta' },
-  3: { zoom: 1.15, name: 'Cenital' },
+  1: { zoom: 10.5, name: 'Cockpit' },
+  2: { zoom: 7, name: 'Cámara alta' },
+  3: { zoom: 3.4, name: 'Cenital' },
   4: { zoom: 0, name: 'Completa' },
 };
 
@@ -56,11 +58,22 @@ export class TrackView {
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.width = Math.max(1, Math.round(rect.width));
-    this.height = Math.max(1, Math.round(rect.height));
+    /* Si el elemento todavía no tiene layout (ventana oculta al montar, carga
+       tardía de fuentes) se usa el tamaño de la ventana: un lienzo de 1 píxel
+       se ve como una pantalla negra aunque la simulación siga corriendo. */
+    const winW = window.innerWidth || 1280;
+    const winH = window.innerHeight || 720;
+    this.width = Math.max(1, Math.round(rect.width || winW));
+    this.height = Math.max(1, Math.round(rect.height || winH));
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
+    this.ok = rect.width > 2 && rect.height > 2;
     this.staticLayer = null;
+  }
+
+  /** ¿El lienzo tiene ya un tamaño real en pantalla? */
+  get listo() {
+    return this.ok;
   }
 
   /** Escala para encuadrar el circuito completo. */
@@ -117,12 +130,11 @@ export class TrackView {
     const p = state?.player;
     if (this.camera === 4 || !p) return { zoom: full, x: this.track.center.x, y: this.track.center.y, rotate: false };
     const cfg = CAMERAS[this.camera];
-    /* Se mira más lejos cuanto más rápido va el coche, y en el cockpit la
-       cámara va pegada al morro para que la pista se vea ancha */
-    const ahead = (this.camera === 1 ? 6 : 18) + p.speed * 0.5;
+    /* La cámara va un poco por delante del morro, sin alejarlo de la pista */
+    const ahead = (this.camera === 1 ? 5 : 11) + p.speed * 0.16;
     const x = p.x + Math.cos(p.angle) * ahead;
     const y = p.y + Math.sin(p.angle) * ahead;
-    const zoom = cfg.zoom > 1 ? Math.max(full, 1.15 * cfg.zoom) : Math.max(full, cfg.zoom);
+    const zoom = cfg.zoom > 1 ? Math.max(full, cfg.zoom) : full;
     return { zoom, x, y, rotate: false };
   }
 
@@ -133,10 +145,10 @@ export class TrackView {
     ctx.beginPath();
     ctx.rect(left, top, right - left, bottom - top);
     ctx.clip();
-    const step = 260;
+    const step = 90;
     for (let x = Math.floor(left / step) * step; x < right; x += step) {
       for (let y = Math.floor(top / step) * step; y < bottom; y += step) {
-        ctx.fillStyle = ((x / step + y / step) | 0) % 2 ? '#1a3020' : GRASS;
+        ctx.fillStyle = ((x / step + y / step) | 0) % 2 ? GRASS_ALT : GRASS;
         ctx.fillRect(x, y, step, step);
       }
     }
@@ -179,20 +191,21 @@ export class TrackView {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
-    // Sombra de la cinta.
-    this.fillRibbon(ctx, visible, 6, 'rgba(0, 0, 0, .45)');
+    // Sombra de la cinta: separa el asfalto del verde.
+    this.fillRibbon(ctx, visible, 7, 'rgba(8, 12, 10, .55)');
+    this.fillRibbon(ctx, visible, 2, 'rgba(8, 12, 10, .45)');
 
     // Asfalto.
     this.fillRibbon(ctx, visible, 0, ASPHALT);
 
     // Franjas claras alternas para dar textura.
-    ctx.strokeStyle = alpha(WHITE, 0.035);
-    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = alpha(WHITE, 0.06);
+    ctx.lineWidth = 2.2;
     for (let k = 0; k < visible.length; k += 14) this.strokeCentre(ctx, visible, k, k + 7);
 
     // Bordes blancos.
-    ctx.strokeStyle = alpha(WHITE, 0.8);
-    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = alpha(WHITE, 0.92);
+    ctx.lineWidth = 0.55;
     this.strokeEdges(ctx, visible, 0);
 
     // Pianos.
@@ -217,71 +230,81 @@ export class TrackView {
   /**
    * Franja de escapatoria a ambos lados del asfalto: grava en las curvas lentas
    * y asfalto en las rápidas, como en los trazados reales. Se dibuja por
-   * tramos porque el material cambia punto a punto.
+   * tramos continuos porque el material cambia punto a punto.
    */
   drawRunoff(ctx, visible) {
     const pts = this.track.points;
-    const HARD = 7.5;
-    const SOFT = 15;
+    const NEAR = 8;
+    const FAR = 17;
     const materials = {
-      gravel: 'rgba(150, 132, 98, .9)',
-      asphalt: 'rgba(52, 56, 66, .9)',
-      grass: 'rgba(46, 74, 50, .9)',
+      gravel: 'rgba(178, 156, 116, .95)',
+      asphalt: 'rgba(88, 96, 112, .95)',
+      grass: 'rgba(56, 92, 62, .95)',
     };
     for (const side of [-1, 1]) {
-      /* Banda exterior, siempre verde: separa la pista del entorno */
-      this.runoffBand(ctx, visible, pts, side, SOFT, HARD, () => materials.grass);
-      /* Banda interior de escapatoria, por material */
+      /* Verde exterior: despeja la pista del entorno */
+      this.fillBand(ctx, visible, pts, side, FAR, NEAR, materials.grass);
+      /* Escapatoria propiamente dicha, por material */
       let run = null;
       const flush = () => {
-        if (!run || run.points.length < 2) { run = null; return; }
-        ctx.beginPath();
-        const ptsOfRun = run.points;
-        for (let k = 0; k < ptsOfRun.length; k++) {
-          const { a, b } = ptsOfRun[k];
-          if (k === 0) ctx.moveTo(a.x, a.y); else ctx.lineTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-        }
-        ctx.lineWidth = HARD;
-        ctx.strokeStyle = run.colour;
-        ctx.stroke();
+        if (run && run.points.length > 1) this.strokeBand(ctx, run.points, side, 0, NEAR, run.colour);
         run = null;
       };
       for (const i of visible) {
         const p = pts[i];
-        const material = p?.runoff || 'grass';
         if (!p) { flush(); continue; }
+        const material = p.runoff || 'grass';
         if (run && run.material !== material) flush();
-        if (!run) run = { material, colour: materials[material] || materials.grass, points: [] };
-        run.points.push({
-          a: { x: p.x + p.nx * HARD * side, y: p.y + p.ny * HARD * side },
-          b: { x: p.x + p.nx * p.halfWidth * side, y: p.y + p.ny * p.halfWidth * side },
-        });
+        if (!run) run = { material, colour: materials[material] || materials.grass, length: 0, points: [] };
+        run.length += 1;
+        run.points.push(p);
       }
       flush();
     }
   }
 
-  /** Banda continua entre dos distancias del borde del asfalto. */
-  runoffBand(ctx, visible, pts, side, from, to, colourFn) {
+  /** Rellena la banda que va desde `from` hasta `to` metros del borde. */
+  fillBand(ctx, visible, pts, side, from, to, colour) {
+    let drawn = 0;
+    ctx.beginPath();
+    for (let k = 0; k < visible.length - 1; k++) {
+      const i = visible[k];
+      const j = visible[k + 1];
+      if (Math.abs(j - i) > 2) continue;
+      const a = pts[i];
+      const b = pts[j];
+      if (!a || !b) continue;
+      const af = a.halfWidth + from;
+      const bf = b.halfWidth + from;
+      const at = a.halfWidth + to;
+      const bt = b.halfWidth + to;
+      ctx.moveTo(a.x + a.nx * af * side, a.y + a.ny * af * side);
+      ctx.lineTo(b.x + b.nx * bf * side, b.y + b.ny * bf * side);
+      ctx.lineTo(b.x + b.nx * bt * side, b.y + b.ny * bt * side);
+      ctx.lineTo(a.x + a.nx * at * side, a.y + a.ny * at * side);
+      ctx.closePath();
+      drawn++;
+    }
+    if (!drawn) return;
+    ctx.fillStyle = colour;
+    ctx.fill();
+  }
+
+  /** Traza una banda de `to - from` metros de ancho centrada en esa franja. */
+  strokeBand(ctx, points, side, from, to, colour) {
+    const mid = from + (to - from) / 2;
     ctx.beginPath();
     let started = false;
-    for (const i of visible) {
-      const p = pts[i];
-      if (!p) continue;
-      const x = p.x + p.nx * (p.halfWidth + from) * side;
-      const y = p.y + p.ny * (p.halfWidth + from) * side;
+    for (const p of points) {
+      const w = p.halfWidth + mid;
+      const x = p.x + p.nx * w * side;
+      const y = p.y + p.ny * w * side;
       if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
     }
-    for (let k = visible.length - 1; k >= 0; k--) {
-      const p = pts[visible[k]];
-      if (!p) continue;
-      ctx.lineTo(p.x + p.nx * (p.halfWidth + to) * side, p.y + p.ny * (p.halfWidth + to) * side);
-    }
     if (!started) return;
-    ctx.closePath();
-    ctx.fillStyle = colourFn();
-    ctx.fill();
+    ctx.lineWidth = Math.max(0.5, to - from);
+    ctx.strokeStyle = colour;
+    ctx.stroke();
   }
 
   /** Tribunas y gradas a lo largo del trazado, para que la pista no quede vacía. */
@@ -339,27 +362,34 @@ export class TrackView {
     ctx.restore();
   }
 
-  /** Rellena la cinta de asfalto entre los dos bordes de la calzada. */
+  /**
+   * Rellena la calzada entre los dos bordes. Se hace cuadrilátero a cuadrilátero
+   * y no como un único polígono: una cinta que se cierra sobre sí misma se
+   * rellena con la regla del "relleno no nulo" y acaba saliendo vacía, que es
+   * justo lo que dejaba la pantalla en negro.
+   */
   fillRibbon(ctx, visible, pad, colour) {
     const pts = this.track.points;
+    let drawn = 0;
     ctx.beginPath();
-    let started = false;
-    for (const i of visible) {
-      const p = pts[i];
-      if (!p) continue;
-      const w = p.halfWidth + pad;
-      const x = p.x + p.nx * w;
-      const y = p.y + p.ny * w;
-      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    for (let k = 0; k < visible.length - 1; k++) {
+      const i = visible[k];
+      const j = visible[k + 1];
+      /* Solo tramos de verdad contiguos: los saltos son huecos de culling */
+      if (Math.abs(j - i) > 2) continue;
+      const a = pts[i];
+      const b = pts[j];
+      if (!a || !b) continue;
+      const wa = a.halfWidth + pad;
+      const wb = b.halfWidth + pad;
+      ctx.moveTo(a.x + a.nx * wa, a.y + a.ny * wa);
+      ctx.lineTo(b.x + b.nx * wb, b.y + b.ny * wb);
+      ctx.lineTo(b.x - b.nx * wb, b.y - b.ny * wb);
+      ctx.lineTo(a.x - a.nx * wa, a.y - a.ny * wa);
+      ctx.closePath();
+      drawn++;
     }
-    for (let k = visible.length - 1; k >= 0; k--) {
-      const p = pts[visible[k]];
-      if (!p) continue;
-      const w = p.halfWidth + pad;
-      ctx.lineTo(p.x + p.nx * w, p.y + p.ny * w);
-    }
-    if (!started) return;
-    ctx.closePath();
+    if (!drawn) return;
     ctx.fillStyle = colour;
     ctx.fill();
   }
@@ -620,14 +650,26 @@ export class TrackView {
       ctx.fillRect(nose - 0.3, -0.3, 0.22, 0.6);
     }
 
-    // Etiqueta del jugador.
+    // Marca del jugador: aro de luz y galón, para no perder el coche nunca.
     if (car.isPlayer) {
+      ctx.strokeStyle = 'rgba(250, 204, 21, .95)';
+      ctx.lineWidth = 0.32;
+      ctx.beginPath();
+      ctx.arc(0, 0, 3.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(250, 204, 21, .95)';
+      ctx.beginPath();
+      ctx.moveTo(nose + 0.4, 0);
+      ctx.lineTo(nose + 2.2, -0.85);
+      ctx.lineTo(nose + 2.2, 0.85);
+      ctx.closePath();
+      ctx.fill();
       ctx.rotate(-car.angle);
       ctx.fillStyle = readableOn(primary);
-      ctx.font = 'bold 2.6px "Segoe UI", sans-serif';
+      ctx.font = 'bold 2.4px "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('TÚ', 0, -4.2);
+      ctx.fillText('TÚ', 0, -4.6);
     }
     ctx.restore();
   }
@@ -645,12 +687,13 @@ export class TrackView {
   }
 
   drawVignette(ctx) {
+    /* Muy suave: solo insinúa el borde, no puede apagar la escena */
     const g = ctx.createRadialGradient(
-      this.width / 2, this.height / 2, Math.min(this.width, this.height) * 0.35,
-      this.width / 2, this.height / 2, Math.max(this.width, this.height) * 0.75,
+      this.width / 2, this.height / 2, Math.min(this.width, this.height) * 0.55,
+      this.width / 2, this.height / 2, Math.max(this.width, this.height) * 0.95,
     );
     g.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    g.addColorStop(1, 'rgba(0, 0, 0, .45)');
+    g.addColorStop(1, 'rgba(0, 0, 0, .2)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, this.width, this.height);
   }

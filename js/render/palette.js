@@ -1,13 +1,15 @@
 // Paleta y helpers de color compartidos por los renderizadores.
 
 export const INK = '#05060a';
-export const ASPHALT = '#262a33';
-export const ASPHALT_DARK = '#1b1e25';
-export const KERB_RED = '#c8382f';
-export const KERB_BLUE = '#2f5cc8';
-export const GRASS = '#16281a';
-export const GRASS_ALT = '#1a3020';
-export const CARBON = '#15171d';
+/* Colores de escena: el asfalto y la hierba tienen que leerse bien en pantalla,
+   con una diferencia de luminancia clara entre calzada, escapatoria y verde. */
+export const ASPHALT = '#4b5261';
+export const ASPHALT_DARK = '#333a47';
+export const KERB_RED = '#d4483d';
+export const KERB_BLUE = '#3a6ad4';
+export const GRASS = '#2e5133';
+export const GRASS_ALT = '#37603c';
+export const CARBON = '#23272f';
 export const WHITE = '#f2f4f8';
 
 export const TYRE_STYLE = {

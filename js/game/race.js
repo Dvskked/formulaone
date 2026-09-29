@@ -2,7 +2,7 @@
 // Gestiona parrilla, semÃ¡foro, IA, paradas, banderas,cronometraje y resultados.
 
 import { makeRng } from '../core/rng.js';
-import { buildTrack, projectCar, indexAtS, pointAtS, speedProfile, minimap } from './track.js';
+import { buildTrack, projectCar, indexAtS, pointAtS, speedProfile, minimap, straightBeforeLine } from './track.js';
 import { makeCarState, stepCar, stepAi, applyLaunch, maxSpeed, TYRES, tyreLapsLeft, ERS_CAPACITY } from './car.js';
 import { clamp, mod, lerp, dist as dist2d } from '../core/util.js';
 
@@ -124,6 +124,9 @@ export function createSession(config) {
      sesion real. Carrera y clasificacion: parrilla de dos en dos. */
   const spacing = kind === 'fp' ? 46 : 9.5;
   const lateral = kind === 'fp' ? 3.4 : 1.9;
+  /* Practicas y clasificacion: se sale rodando desde la recta anterior a la
+     meta, nunca encajonado en la curva final. */
+  const salidaRecta = isTimeSession ? straightBeforeLine(track) : 8;
 
   state.cars = startOrder.map((entry, i) => {
     const c = makeCarState(track, entry, { grid: i + 1, tyre: startTyre });
@@ -131,7 +134,9 @@ export function createSession(config) {
     c.rng = rng.fork(`ai-${entry.driverId}`);
     c.strategy = makeStrategy(rng.fork(`strat-${entry.driverId}`), kind, state.laps);
     /* Colocación en pista */
-    const back = kind === 'fp' ? -(i * spacing) - 150 : -(i * spacing) - 8;
+    const back = isTimeSession
+      ? -(i * spacing) - salidaRecta
+      : (kind === 'fp' ? -(i * spacing) - 150 : -(i * spacing) - 8);
     const s = mod(back, track.length);
     const p = pointAtS(track, s);
     const lat = kind === 'fp'

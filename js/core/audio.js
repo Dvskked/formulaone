@@ -215,10 +215,13 @@ class AudioEngine {
       gB,
       gC,
       intake,
+      intakeFilter,
       intakeGain,
       ers,
+      ersFilter,
       ersGain,
       wind,
+      windFilter,
       windGain,
       baseFreq,
       harmonics,
@@ -233,8 +236,15 @@ class AudioEngine {
    *          drs:boolean, offTrack:boolean, kerb:number, load:number}} s
    */
   updateEngine(s = {}) {
-    if (!this.ready || !this.engineOn || !this.nodes || this.nodes.dead) return;
     const n = this.nodes;
+    if (!this.ready || !this.engineOn || !n || n.dead) return;
+    /* Si faltara algun nodo, el motor se apaga en vez de reventar el bucle de
+       juego: el sonido no puede dejar la pantalla en negro. */
+    if (!n.oscA || !n.body || !n.intakeFilter || !n.windFilter || !n.ers) {
+      console.warn('Audio: faltan nodos del motor, se desactiva.');
+      this.stopEngine();
+      return;
+    }
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const smooth = 0.045;

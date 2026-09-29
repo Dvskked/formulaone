@@ -2,6 +2,7 @@
 // Todo se monta dentro de init() para que el módulo pueda importarse sin DOM.
 
 import { $, el } from './ui/dom.js';
+import { BUILD } from './build.js';
 import { Shell } from './ui/shell.js';
 import { ctx, setSettings } from './ui/context.js';
 import { MenuBackground } from './render/menu-bg.js';
@@ -90,9 +91,12 @@ function refreshMenuCards() {
   dom.menu.soundBtn.textContent = ctx.settings.sound ? 'Sonido ON' : 'Sonido OFF';
   dom.menu.soundBtn.setAttribute('aria-pressed', String(Boolean(ctx.settings.sound)));
   const total = withData.length;
-  dom.menu.foot.textContent = total
+  const base = total
     ? `${total} de ${SLOT_COUNT} huecos en uso. Todo ocurre en tu dispositivo, sin cuentas ni nube.`
     : 'Todo ocurre en tu dispositivo. Sin anuncios, sin registro, sin instalaciones.';
+  /* Sello de compilacion: si el juego va lento o algo no cuadra, esta linea
+     dice si el navegador esta con el codigo actual o con una copia guardada. */
+  dom.menu.foot.textContent = `${base} · build ${BUILD}`;
 }
 
 function renderMenuSide() {

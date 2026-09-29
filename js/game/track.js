@@ -557,6 +557,31 @@ export function indexAtS(track, s) {
   return lo;
 }
 
+/**
+ * Distancia, hacia atras desde la linea de meta, del punto de salida para una
+ * sesion de cronometraje. Se elige el punto mas cercano a la meta que aun tenga
+ * `minRun` metros de recta por delante: el coche sale rodando, acelera sin curva
+ * y llega a la linea en el sitio y en el momento que se espera, sin regalar
+ * media vuelta de pista.
+ */
+export function straightBeforeLine(track, minRun = 140, maxLook = 250, step = 5) {
+  const pts = track.points;
+  const n = pts.length;
+  const paso = pts[1] && pts[0] ? pts[1].s - pts[0].s : 4.2;
+  const tope = Math.ceil(minRun / paso);
+  for (let d = maxLook; d >= 60; d -= step) {
+    const i0 = indexAtS(track, mod(-d, track.length));
+    let largo = 0;
+    for (let k = 0; k < tope; k++) {
+      /* Radio mayor de 125 m: se puede seguir la trazada sin salirse */
+      if (Math.abs(pts[(i0 + k) % n].curv || 0) >= 0.008) break;
+      largo += paso;
+    }
+    if (largo >= minRun) return d;
+  }
+  return 60;
+}
+
 export function pointAtS(track, s) {
   return track.points[indexAtS(track, s)];
 }

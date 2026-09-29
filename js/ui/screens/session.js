@@ -154,10 +154,13 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
     countdown: session.phase === 'countdown' ? 5.9 : 0,
     startedAt: Date.now(),
     pitPrompt: false,
+    resizeFrames: 30,
+    errores: 0,
     stop() {
       if (this.raf) cancelAnimationFrame(this.raf);
       if (this.onResize) window.removeEventListener('resize', this.onResize);
       if (this.onKey) window.removeEventListener('keydown', this.onKey);
+      this.aviso?.remove();
       input.setDrivingEnabled(false);
       input.detach();
       audio.stopEngine();
@@ -262,36 +265,62 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
     await showResults(shell, { sessionDef, round: raceRound, payload, wasDnf: Boolean(session.results.entries.find((e) => e.driverId === state.driver.id)?.retired) });
   };
 
+  /* El fotograma se pide ANTES de dibujar y todo va protegido: si algo falla
+     una vez, la sesión sigue corriendo en vez de dejar la pantalla en negro
+     con el motor sonando. */
   const frame = (now) => {
     if (!active) return;
-    const wall = Math.min(0.1, (now - runner.last) / 1000);
-    runner.last = now;
-
-    if (!runner.paused) {
-      const speed = ctx.settings.simSpeed || 1;
-      runner.accumulator += wall * speed;
-      let steps = 0;
-      const controls = input.driving(SIM_STEP);
-      runner.controls = controls;
-      while (runner.accumulator >= SIM_STEP && steps < 12) {
-        updateSession(session, SIM_STEP, controls);
-        runner.accumulator -= SIM_STEP;
-        steps++;
-      }
-      if (steps >= 12) runner.accumulator = 0;
-      input.endFrame();
-      updateAudio(session, controls);
-      checkEvents(session);
-    }
-
-    view.draw(session);
-    hud.update(session);
-
-    if (session.completed && !runner.finished) {
-      finish();
-      return;
-    }
     runner.raf = requestAnimationFrame(frame);
+    try {
+      const wall = Math.min(0.1, (now - runner.last) / 1000);
+      runner.last = now;
+
+      if (!runner.paused) {
+        const speed = ctx.settings.simSpeed || 1;
+        runner.accumulator += wall * speed;
+        let steps = 0;
+        const controls = input.driving(SIM_STEP);
+        runner.controls = controls;
+        while (runner.accumulator >= SIM_STEP && steps < 12) {
+          updateSession(session, SIM_STEP, controls);
+          runner.accumulator -= SIM_STEP;
+          steps++;
+        }
+        if (steps >= 12) runner.accumulator = 0;
+        input.endFrame();
+        /* El sonido va aparte: si el navegador no tiene Web Audio, o falla un
+           nodo, la carrera sigue igual. */
+        try { updateAudio(session, controls); } catch { /* audio sin audio */ }
+        checkEvents(session);
+      }
+
+      /* Si el lienzo no tenía tamaño real (ventana oculta al montar, carga
+         tardía), se reintenta hasta que lo tenga. */
+      if (runner.resizeFrames > 0) {
+        runner.resizeFrames -= 1;
+        if (!view.listo) { view.resize(); runner.resizeFrames = 30; }
+      }
+      view.draw(session);
+      hud.update(session);
+
+      if (session.completed && !runner.finished) {
+        finish();
+      }
+    } catch (err) {
+      runner.errores = (runner.errores || 0) + 1;
+      if (runner.errores < 3) console.error('Error en el bucle de sesión', err);
+      if (runner.errores === 3) {
+        /* Un fallo de dibujo no puede quedarse en negro y sin decir nada: se
+           avisa en pantalla con el motivo y se sigue jugando. */
+        shell.toast('Aviso: ha habido un fallo al dibujar la pista.', 'bad');
+        const aviso = el('div.race-error', null, [
+          el('b', { text: 'Fallo al dibujar la pista' }),
+          el('span', { text: String(err && err.message ? err.message : err).slice(0, 160) }),
+        ]);
+        wrap.appendChild(aviso);
+        runner.aviso = aviso;
+      }
+    }
   };
   runner.raf = requestAnimationFrame(frame);
 
