@@ -12,6 +12,13 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const ENTRY = 'js/main.js';
 const OUT = join(ROOT, 'dist', 'predestinato.bundle.js');
 
+/* Sello de compilacion. Se escribe en el paquete y en un fichero suelto para
+   que se pueda comprobar de un vistazo que el navegador esta con el codigo
+   actual y no con una copia guardada en la cache. */
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+const STAMP = `${pkg.version || '0.0.0'}+${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}`;
+writeFileSync(join(ROOT, 'dist', 'build.json'), JSON.stringify({ stamp: STAMP, modules: 0, bytes: 0 }, null, 2), 'utf8');
+
 const IMPORT_NAMED = /^import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"];?[ \t]*$/gm;
 const IMPORT_BARE = /^import\s*['"]([^'"]+)['"];?[ \t]*$/gm;
 const DYNAMIC = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -66,7 +73,9 @@ function load(id) {
       /* Los import() dinámicos no son aristas estáticas: se resuelven al vuelo. */
       dynDeps.add(target);
       return `__lazy(${JSON.stringify(target)})`;
-    });
+    })
+    /* El sello de compilacion se graba aqui, no en el archivo de origen. */
+    .replace(/'PENDIENTE_BUILD_MJS'/g, JSON.stringify(STAMP));
 
   const exported = [];
   code = code.replace(EXPORT_LIST, (_, list) => {
@@ -128,9 +137,11 @@ while (queue.length) {
 const modules = [...cache.values()].filter((m) => m.code !== undefined)
   .sort((a, b) => a.id.localeCompare(b.id));
 const banner = `/* FORMULA 1: PREDESTINATO — paquete autogenerado por build.mjs. No editar a mano. */`;
+const stampLine = `window.__BUILD__ = ${JSON.stringify(STAMP)};`;
 
 const parts = [
   banner,
+  stampLine,
   '(function () {',
   "'use strict';",
   'var __registry = {};',
@@ -174,7 +185,9 @@ for (const file of readdirSync(join(ROOT, 'js'), { recursive: true })) {
 }
 
 const kb = (bundle.length / 1024).toFixed(1);
+writeFileSync(join(ROOT, 'dist', 'build.json'), JSON.stringify({ stamp: STAMP, modules: modules.length, bytes: bundle.length }, null, 2), 'utf8');
 console.log(`build: ${modules.length} módulos -> dist/predestinato.bundle.js (${kb} kB)`);
+console.log(`build: sello ${STAMP}`);
 if (orphans.length) {
   console.log(`AVISO: ${orphans.length} fichero(s) de js/ fuera del paquete:`);
   for (const id of orphans) console.log(`  - ${id}`);
