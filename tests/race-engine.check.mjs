@@ -69,6 +69,12 @@ console.log('race-engine.check');
     settings: { ...DEFAULT_SETTINGS, raceLength: 'corta' },
     seed: 11,
   });
+  /* El jugador no puede arrancar encajonado en una curva: en una sesión de
+     cronometraje se sale rodando desde la recta anterior a la meta. */
+  const arranque = state.player.s;
+  const recta = pointAtS(track, arranque + 40);
+  check('fp: arranca en un tramo recto', Math.abs(recta.curv) < 0.006, `curv=${recta.curv.toFixed(5)}`);
+  check('fp: hay recta antes de la meta', track.length - arranque > 40, `dist=${(track.length - arranque).toFixed(0)}`);
   run(state, 200, fakeInput());
   check('fp: arranca la sesión', state.phase === 'running', `phase=${state.phase}`);
   check('fp: el jugador avanza', state.player.dist > 20, `dist=${state.player.dist.toFixed(1)}`);
@@ -92,6 +98,9 @@ console.log('race-engine.check');
   const circuit = getCircuit('monaco');
   const track = buildTrack(circuit, makeRng(21));
   const state = createSession({ circuit, entryList: list, kind: 'quali', round, settings: { ...DEFAULT_SETTINGS, raceLength: 'corta' }, seed: 5 });
+  const rectQ = pointAtS(track, state.player.s + 40);
+  check('quali: arranca en un tramo recto', Math.abs(rectQ.curv) < 0.006, `curv=${rectQ.curv.toFixed(5)}`);
+  check('quali: arranca en primera posición', state.grid[0].driverId === 'player', `P1=${state.grid[0].driverId}`);
   check('quali: arranca en Q1', state.segment === 0 && state.phase === 'running', `seg=${state.segment}`);
   run(state, 213, fakeInput());
   check('quali: Q1 cerrada con 22', state.segmentsDone.length === 1, `hechos=${state.segmentsDone.length}`);

@@ -89,6 +89,53 @@ function instrument(canvas, label) {
   return wrapped;
 }
 
+/* Contexto que acumula el area de cada relleno con la regla del numero par.
+   Un poligono que se cierra sobre si mismo da area virtually nula aunque se
+   llame a fill(): asi se detecta una calzada que en pantalla no sale. */
+function areaContext() {
+  const log = { areas: [], count: 0, subpaths: 0 };
+  const state = {
+    canvas: null,
+    fillStyle: '#000',
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+  };
+  let sub = null;
+  const cerrar = () => {
+    if (!sub || sub.length < 3) return;
+    let area = 0;
+    for (let i = 0; i < sub.length; i++) {
+      const a = sub[i];
+      const b = sub[(i + 1) % sub.length];
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+    log.areas.push(Math.abs(area) / 2);
+    log.count += 1;
+  };
+  return new Proxy(state, {
+    get(target, prop) {
+      if (prop in log) return log[prop];
+      if (prop in target) return target[prop];
+      switch (prop) {
+        case 'beginPath': return () => { cerrar(); sub = []; log.subpaths += 1; };
+        case 'moveTo': return (x, y) => { if (sub && sub.length) cerrar(); sub = [[x, y]]; };
+        case 'lineTo': return (x, y) => { if (!sub) sub = [[x, y]]; else sub.push([x, y]); };
+        case 'closePath': return () => {};
+        case 'fill': return () => cerrar();
+        case 'save': case 'restore': case 'translate': case 'rotate': case 'scale':
+          return () => {};
+        case 'fillRect': return (x, y, w, h) => { log.areas.push(Math.abs(w * h)); log.count += 1; };
+        case 'strokeRect': return () => {};
+        case 'arc': case 'rect': case 'fillText': case 'strokeText': case 'setLineDash':
+        case 'moveToLine': case 'clip': case 'ellipse': case 'quadraticCurveTo': case 'bezierCurveTo':
+          return () => {};
+        default: return () => {};
+      }
+    },
+    set(target, prop, value) { target[prop] = value; return true; },
+  });
+}
+
 console.log('render.check');
 
 /* 1. Todas las cámaras del visor de pista sobre cada circuito. */
@@ -144,7 +191,24 @@ if (bad.numbers.length) {
 } else {
   console.log(`  OK   visor de pista: ${snapshots.length} estados x 5 camaras sin NaN`);
 }
-/* 2. Minimapa con datos de trazada. */
+/* 2. La calzada tiene que cubrir de verdad el ancho de la pista. */
+{
+  const areaCtx = areaContext();
+  const visibles = [];
+  for (let i = 0; i < session.track.points.length; i++) visibles.push(i);
+  areaCtx.beginPath();
+  view.setTrack(session.track);
+  view.fillRibbon(areaCtx, visibles, 0, '#4b5261');
+  areaCtx.fill();
+  const ancho = session.track.points[0].halfWidth * 2;
+  const esperado = visibles.length * 4.2 * ancho * 0.75;
+  const total = areaCtx.areas.reduce((a, b) => a + b, 0);
+  if (areaCtx.count < 10) fail(`La calzada se rellena en ${areaCtx.count} tramos: no llega a dibujar la pista`);
+  else if (total < esperado) fail(`La calzada cubre ${Math.round(total)} m² de los ~${Math.round(esperado)} m² esperados`);
+  else console.log(`  OK   calzada rellena: ${areaCtx.count} tramos, ${Math.round(total)} m² de ${Math.round(ancho * visibles.length * 4.2)} m² de trazado`);
+}
+
+/* 3. Minimapa con datos de trazada. */
 const mmCanvas = fakeCanvas(220, 220);
 instrument(mmCanvas, 'minimap');
 const minimap = new Minimap(mmCanvas);
