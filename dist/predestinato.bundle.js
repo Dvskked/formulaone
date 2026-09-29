@@ -1,5 +1,5 @@
 /* FORMULA 1: PREDESTINATO — paquete autogenerado por build.mjs. No editar a mano. */
-window.__BUILD__ = "2.0.0+202609290028";
+window.__BUILD__ = "2.0.0+202609290222";
 (function () {
 'use strict';
 var __registry = {};
@@ -17,9 +17,9 @@ __registry["js/build.js"] = function (__x, __req) {
 // Sello de compilacion. build.mjs sustituye la marca por la fecha real al
 // empaquetar; si se ejecutan los modulos sueltos sin compilar, se lee el que
 // haya puesto el paquete anterior o se avisa de que no hay sello.
-const MARCA = "2.0.0+202609290028";
+const MARCA = "2.0.0+202609290222";
 
-const BUILD = MARCA === "2.0.0+202609290028"
+const BUILD = MARCA === "2.0.0+202609290222"
   ? (globalThis.__BUILD__ || 'modulos sueltos')
   : MARCA;
 
@@ -243,10 +243,13 @@ class AudioEngine {
       gB,
       gC,
       intake,
+      intakeFilter,
       intakeGain,
       ers,
+      ersFilter,
       ersGain,
       wind,
+      windFilter,
       windGain,
       baseFreq,
       harmonics,
@@ -261,8 +264,15 @@ class AudioEngine {
    *          drs:boolean, offTrack:boolean, kerb:number, load:number}} s
    */
   updateEngine(s = {}) {
-    if (!this.ready || !this.engineOn || !this.nodes || this.nodes.dead) return;
     const n = this.nodes;
+    if (!this.ready || !this.engineOn || !n || n.dead) return;
+    /* Si faltara algun nodo, el motor se apaga en vez de reventar el bucle de
+       juego: el sonido no puede dejar la pantalla en negro. */
+    if (!n.oscA || !n.body || !n.intakeFilter || !n.windFilter || !n.ers) {
+      console.warn('Audio: faltan nodos del motor, se desactiva.');
+      this.stopEngine();
+      return;
+    }
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const smooth = 0.045;
@@ -10086,7 +10096,18 @@ async function showSession(shell, { session: sessionDef, round } = {}) {
         }
         if (steps >= 12) runner.accumulator = 0;
         input.endFrame();
-        updateAudio(session, controls);
+        /* El sonido va aparte: si el navegador no tiene Web Audio, o falla un
+           nodo, la carrera sigue igual. */
+        if (runner.avisoAudio === undefined) {
+          try { updateAudio(session, controls); runner.avisoAudio = false; } catch (e) {
+            if (runner.avisoAudio !== true) {
+              runner.avisoAudio = true;
+              console.warn('Audio desactivado durante la carrera:', e);
+            }
+          }
+        } else if (!runner.avisoAudio) {
+          updateAudio(session, controls);
+        }
         checkEvents(session);
       }
 

@@ -13,6 +13,8 @@ const suites = [
   ['career.check.mjs'],
   ['race-engine.check.mjs'],
   ['render.check.mjs'],
+  ['audio.check.mjs'],
+  ['audio-fallo.check.mjs'],
   ['screens.check.mjs'],
   ['boot.check.mjs'],
   ['boot.check.mjs', '--bundle'],

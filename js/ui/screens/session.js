@@ -290,7 +290,16 @@ export async function showSession(shell, { session: sessionDef, round } = {}) {
         input.endFrame();
         /* El sonido va aparte: si el navegador no tiene Web Audio, o falla un
            nodo, la carrera sigue igual. */
-        try { updateAudio(session, controls); } catch { /* audio sin audio */ }
+        if (runner.avisoAudio === undefined) {
+          try { updateAudio(session, controls); runner.avisoAudio = false; } catch (e) {
+            if (runner.avisoAudio !== true) {
+              runner.avisoAudio = true;
+              console.warn('Audio desactivado durante la carrera:', e);
+            }
+          }
+        } else if (!runner.avisoAudio) {
+          updateAudio(session, controls);
+        }
         checkEvents(session);
       }
 
