@@ -728,6 +728,23 @@ input[type="range"] { width: 100%; accent-color: var(--red); }
 
 .race { position: absolute; inset: 0; background: #07080c; }
 .race-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.race-error {
+    position: absolute;
+    left: 50%;
+    top: 16px;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: min(92vw, 560px);
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #ff6b81;
+    background: rgba(28, 8, 12, .94);
+    color: #ffd9de;
+    font-size: 13px;
+    }
 
 .hud {
   position: absolute;
