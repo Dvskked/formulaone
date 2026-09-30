@@ -1,4 +1,4 @@
-// Construcción de circuitos a partir de un trazado compacto de segmentos.
+﻿// Construcción de circuitos a partir de un trazado compacto de segmentos.
 // Genera línea central, anchura, pianos, boxes, zonas DRS, sectores y línea de carrera.
 
 import { clamp, dist, TAU, mod } from '../core/util.js';
